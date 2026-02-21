@@ -109,6 +109,10 @@ This system exists because your messages are private. By design:
 - Vector DB stored locally at `~/.personal-rag/vectors.db`
 - Source data is never copied — only extracted text and embeddings are stored
 
+## Caveats
+
+The ingestors read directly from Apple's internal data formats — iMessage's `chat.db` SQLite schema and Apple Mail's `.emlx` file structure. These are undocumented, private formats that Apple can change in any macOS update. If ingestion breaks after an OS upgrade, the likely culprit is a schema or format change in one of these sources.
+
 ## Tech stack
 
 Python, FastAPI, HTMX, Jinja2, SQLite, numpy, Ollama, Gemma 3 4B, nomic-embed-text
