@@ -3,10 +3,11 @@
 import json
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.query import retrieve, stream_answer, stream_answer_chat
+from src.vectordb import fetch_by_ids
 from src.web.app import templates
 
 router = APIRouter()
@@ -64,6 +65,15 @@ async def chat_stream(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/api/chunk/{chunk_id}")
+async def chunk_detail(chunk_id: int):
+    """Return full chunk data including text and metadata."""
+    results = fetch_by_ids([chunk_id])
+    if not results:
+        return JSONResponse({"detail": "Chunk not found"}, status_code=404)
+    return results[0]
 
 
 @router.get("/api/query/retrieve")

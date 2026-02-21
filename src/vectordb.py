@@ -1,5 +1,6 @@
 """SQLite-backed vector database with numpy cosine similarity search."""
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -38,6 +39,11 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_chunks_contact ON chunks(contact)
     """)
+    # Migration: add metadata column for existing DBs
+    try:
+        conn.execute("ALTER TABLE chunks ADD COLUMN metadata TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     return conn
 
@@ -47,15 +53,17 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
     conn = _ensure_db(db_path)
     try:
         emb_blob = np.array(embedding, dtype=np.float32).tobytes()
+        meta_json = json.dumps(chunk.metadata) if chunk.metadata else None
         cursor = conn.execute(
             """
-            INSERT INTO chunks (source, contact, start_time, end_time, text, message_count, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks (source, contact, start_time, end_time, text, message_count, embedding, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source, contact, start_time) DO UPDATE SET
                 end_time = excluded.end_time,
                 text = excluded.text,
                 message_count = excluded.message_count,
                 embedding = excluded.embedding,
+                metadata = excluded.metadata,
                 created_at = unixepoch()
             """,
             (
@@ -66,6 +74,7 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
                 chunk.text,
                 chunk.message_count,
                 emb_blob,
+                meta_json,
             ),
         )
         conn.commit()
@@ -91,7 +100,7 @@ def search(
             params.append(source)
 
         rows = conn.execute(
-            f"SELECT id, source, contact, start_time, end_time, text, message_count, embedding FROM chunks {where}",
+            f"SELECT id, source, contact, start_time, end_time, text, message_count, embedding, metadata FROM chunks {where}",
             params,
         ).fetchall()
 
@@ -125,6 +134,7 @@ def search(
                 "text": row[5],
                 "message_count": row[6],
                 "similarity": sim,
+                "metadata": json.loads(row[8]) if row[8] else {},
             })
         return results
     finally:
@@ -139,7 +149,7 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
     try:
         placeholders = ",".join("?" for _ in chunk_ids)
         rows = conn.execute(
-            f"SELECT id, source, contact, start_time, end_time, text, message_count "
+            f"SELECT id, source, contact, start_time, end_time, text, message_count, metadata "
             f"FROM chunks WHERE id IN ({placeholders})",
             chunk_ids,
         ).fetchall()
@@ -153,6 +163,7 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
                 "text": r[5],
                 "message_count": r[6],
                 "similarity": 0.0,  # not from a search, no score
+                "metadata": json.loads(r[7]) if r[7] else {},
             }
             for r in rows
         ]
