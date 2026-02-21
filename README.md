@@ -4,8 +4,8 @@ Local-only RAG system that indexes your iMessage and Apple Mail for semantic sea
 
 ## How it works
 
-1. **Ingest** — Streams messages from iMessage's SQLite DB and Apple Mail `.emlx` files
-2. **Chunk** — Groups iMessages by contact + 4-hour time window; one chunk per email
+1. **Ingest** — Streams messages from iMessage's SQLite DB (Apple Mail support planned)
+2. **Chunk** — Groups iMessages by contact + 4-hour time window
 3. **Embed** — Generates vectors via Ollama (`nomic-embed-text`) and stores in a local SQLite DB
 4. **Query** — Semantic search over embeddings, then streams an answer from Gemma 3 4B
 5. **Multi-turn chat** — Follow-up questions carry full context: prior chunks are accumulated across turns (capped at 20) so the model always sees the raw conversations, not just previous answers
@@ -51,7 +51,6 @@ python3 cli.py ingest --source imessage
 
 # Query
 python3 cli.py query "What restaurant did Sarah recommend?"
-python3 cli.py query "Find receipts from last month" --source email
 
 # Retrieve raw chunks without LLM generation
 python3 cli.py query "meeting notes" --retrieve-only --top-k 10
@@ -64,7 +63,8 @@ python3 cli.py status
 
 ```bash
 python3 cli.py serve
-# Open http://localhost:5391
+# Prints a URL with an auth token — open it in your browser
+# e.g. http://127.0.0.1:5391?token=<generated-token>
 ```
 
 Three pages:
@@ -73,21 +73,13 @@ Three pages:
 - **Ingest** — Start ingestion jobs, watch progress live, cancel if needed.
 - **Status** — Chunk counts, DB size, Ollama connectivity and model availability.
 
-### Nightly updates
-
-```bash
-# crontab -e
-0 3 * * * cd ~/projects/personal-rag && python3 cli.py update >> /tmp/personal-rag.log 2>&1
-```
-
 ## Architecture
 
 ```
-iMessage (chat.db) ──┐
-                     ├── extract → chunk → embed (Ollama) → SQLite vector DB
-Apple Mail (.emlx) ──┘                                           │
-                                                                 ▼
-                        CLI / Web UI ── query → semantic search + Gemma 3 → answer
+iMessage (chat.db) ── extract → chunk → embed (Ollama) → SQLite vector DB
+                                                               │
+                                                               ▼
+                      CLI / Web UI ── query → semantic search + Gemma 3 → answer
 ```
 
 All processing is local. The only network calls are to `localhost:11434` (Ollama).

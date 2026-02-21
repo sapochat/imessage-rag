@@ -4,18 +4,20 @@ import json
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.query import retrieve, stream_answer, stream_answer_chat
 from src.web.app import templates
 
 router = APIRouter()
 
+MAX_TOP_K = 50
+
 
 class ChatRequest(BaseModel):
     query: str
     history: list[dict] = []
-    top_k: int = 5
+    top_k: int = Field(default=5, ge=1, le=MAX_TOP_K)
     source: str | None = None
     prior_chunk_ids: list[int] = []
 
@@ -28,6 +30,7 @@ async def query_page(request: Request):
 @router.get("/api/query/stream")
 async def query_stream(q: str, top_k: int = 5, source: str | None = None):
     """SSE endpoint that streams answer tokens (single-shot, backwards compat)."""
+    top_k = max(1, min(top_k, MAX_TOP_K))
     if source == "":
         source = None
 
@@ -66,6 +69,7 @@ async def chat_stream(req: ChatRequest):
 @router.get("/api/query/retrieve")
 async def query_retrieve(q: str, top_k: int = 5, source: str | None = None):
     """JSON endpoint returning raw retrieved chunks."""
+    top_k = max(1, min(top_k, MAX_TOP_K))
     if source == "":
         source = None
     results = retrieve(q, top_k=top_k, source=source)

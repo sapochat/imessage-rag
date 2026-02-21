@@ -163,9 +163,13 @@ function sendMessage(e) {
     });
 
     // Use fetch + ReadableStream since EventSource doesn't support POST
+    var headers = {'Content-Type': 'application/json'};
+    if (typeof AUTH_TOKEN !== 'undefined') {
+        headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    }
     fetch('/api/chat/stream', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: body
     }).then(function(response) {
         var reader = response.body.getReader();
