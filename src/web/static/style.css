@@ -61,6 +61,8 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 .chat-sources{font-size:.75rem;color:var(--muted);margin-bottom:.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.25rem}
 .source-chip{background:var(--card);padding:.1rem .45rem;border-radius:4px;font-size:.7rem}
+.source-chip-prior{opacity:.6}
+.source-prior-label{color:var(--muted);font-size:.7rem}
 
 .chat-input-area{border-top:1px solid var(--border);padding:.75rem 0 0}
 .chat-settings{display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center}

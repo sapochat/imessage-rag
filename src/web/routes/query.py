@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     history: list[dict] = []
     top_k: int = 5
     source: str | None = None
+    prior_chunk_ids: list[int] = []
 
 
 @router.get("/")
@@ -49,7 +50,8 @@ async def chat_stream(req: ChatRequest):
 
     def event_generator():
         for event in stream_answer_chat(
-            req.query, req.history, top_k=req.top_k, source=source
+            req.query, req.history, top_k=req.top_k, source=source,
+            prior_chunk_ids=req.prior_chunk_ids,
         ):
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"

@@ -8,7 +8,7 @@ import requests
 
 from src.config import GENERATION_MODEL, OLLAMA_URL
 from src.embed import get_embedding
-from src.vectordb import search
+from src.vectordb import fetch_by_ids, search
 
 
 def retrieve(query: str, top_k: int = 5, source: str | None = None) -> list[dict]:
@@ -154,35 +154,59 @@ def stream_answer_chat(
     history: list[dict],
     top_k: int = 5,
     source: str | None = None,
+    prior_chunk_ids: list[int] | None = None,
 ) -> Generator[dict, None, None]:
-    """Multi-turn chat: reformulate → retrieve → stream answer with history.
+    """Multi-turn chat: reformulate → retrieve → merge prior chunks → stream.
 
     Args:
         user_msg: The latest user message.
         history: Prior turns as [{"role": "user"|"assistant", "content": "..."}].
         top_k: Number of chunks to retrieve.
         source: Optional source filter.
+        prior_chunk_ids: Chunk IDs from earlier turns to carry forward.
 
     Yields the same event dict format as stream_answer().
     """
+    MAX_CONTEXT_CHUNKS = 20
+
     # Step 1 — reformulate follow-up into standalone retrieval query
     search_query = reformulate_query(user_msg, history)
 
-    # Step 2 — retrieve
+    # Step 2 — retrieve new chunks for this turn
     try:
-        results = retrieve(search_query, top_k=top_k, source=source)
+        new_results = retrieve(search_query, top_k=top_k, source=source)
     except Exception as e:
         yield {"type": "error", "data": f"Retrieval failed: {e}"}
         return
 
-    if not results:
+    # Step 3 — merge with prior chunks (deduplicate by ID)
+    new_ids = {r["id"] for r in new_results}
+    prior_ids_to_fetch = [
+        cid for cid in (prior_chunk_ids or []) if cid not in new_ids
+    ]
+
+    prior_results = []
+    if prior_ids_to_fetch:
+        try:
+            prior_results = fetch_by_ids(prior_ids_to_fetch)
+        except Exception:
+            pass  # non-fatal — we still have new results
+
+    # New results first (highest relevance), then prior context
+    # Cap total to keep within reasonable token budget
+    all_results = new_results + prior_results
+    all_results = all_results[:MAX_CONTEXT_CHUNKS]
+
+    if not all_results:
         yield {"type": "sources", "data": []}
         yield {"type": "error", "data": "No matching chunks found. Have you run 'ingest' yet?"}
         return
 
+    # Send source info to client (includes IDs so browser can accumulate)
     safe_results = []
-    for r in results:
+    for r in all_results:
         safe_results.append({
+            "id": r["id"],
             "contact": r["contact"],
             "source": r["source"],
             "start_time": r["start_time"],
@@ -190,11 +214,12 @@ def stream_answer_chat(
             "message_count": r["message_count"],
             "similarity": round(r["similarity"], 3),
             "text": r["text"][:300],
+            "is_new": r["id"] in new_ids,
         })
     yield {"type": "sources", "data": safe_results}
 
-    # Step 3 — build messages array for Ollama /api/chat
-    context = _format_context(results)
+    # Step 4 — build messages array for Ollama /api/chat
+    context = _format_context(all_results)
 
     system_msg = (
         "You are a helpful assistant answering questions about the user's personal "

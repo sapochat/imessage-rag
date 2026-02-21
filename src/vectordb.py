@@ -130,6 +130,35 @@ def search(
         conn.close()
 
 
+def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
+    """Fetch chunks by their row IDs. Returns them in the same dict format as search()."""
+    if not chunk_ids:
+        return []
+    conn = _ensure_db(db_path)
+    try:
+        placeholders = ",".join("?" for _ in chunk_ids)
+        rows = conn.execute(
+            f"SELECT id, source, contact, start_time, end_time, text, message_count "
+            f"FROM chunks WHERE id IN ({placeholders})",
+            chunk_ids,
+        ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "source": r[1],
+                "contact": r[2],
+                "start_time": r[3],
+                "end_time": r[4],
+                "text": r[5],
+                "message_count": r[6],
+                "similarity": 0.0,  # not from a search, no score
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
 def get_stats(db_path: Path = VECTOR_DB) -> dict:
     """Return basic stats about the vector DB."""
     if not db_path.exists():
