@@ -38,6 +38,7 @@
 {% block scripts %}
 <script>
 var chatHistory = [];
+var seenChunkIds = [];
 var isStreaming = false;
 
 function scrollToBottom() {
@@ -79,18 +80,40 @@ function addAssistantMessage() {
 
 function renderSourceChips(container, sources) {
     container.textContent = '';
-    var label = createEl('span', null, 'Retrieved from: ');
-    container.appendChild(label);
-    sources.forEach(function(s) {
-        var chip = createEl('span', 'source-chip');
-        chip.textContent = s.contact + ' (' + s.source + ', ' + s.similarity + ')';
-        container.appendChild(chip);
-    });
+    var newSources = sources.filter(function(s) { return s.is_new; });
+    var priorSources = sources.filter(function(s) { return !s.is_new; });
+
+    if (newSources.length > 0) {
+        var label = createEl('span', null, 'New: ');
+        container.appendChild(label);
+        newSources.forEach(function(s) {
+            var chip = createEl('span', 'source-chip');
+            chip.textContent = s.contact + ' (' + s.source + ', ' + s.similarity + ')';
+            container.appendChild(chip);
+        });
+    }
+    if (priorSources.length > 0) {
+        var sep = createEl('span', 'source-prior-label', (newSources.length ? ' + ' : '') + 'Prior: ');
+        container.appendChild(sep);
+        priorSources.forEach(function(s) {
+            var chip = createEl('span', 'source-chip source-chip-prior');
+            chip.textContent = s.contact + ' (' + s.source + ')';
+            container.appendChild(chip);
+        });
+    }
     container.style.display = 'block';
+
+    // Accumulate all chunk IDs
+    sources.forEach(function(s) {
+        if (s.id && seenChunkIds.indexOf(s.id) === -1) {
+            seenChunkIds.push(s.id);
+        }
+    });
 }
 
 function clearChat() {
     chatHistory = [];
+    seenChunkIds = [];
     var thread = document.getElementById('chat-thread');
     thread.textContent = '';
     var welcome = createEl('div', 'chat-welcome');
@@ -135,7 +158,8 @@ function sendMessage(e) {
         query: q,
         history: chatHistory,
         top_k: topK,
-        source: source || null
+        source: source || null,
+        prior_chunk_ids: seenChunkIds
     });
 
     // Use fetch + ReadableStream since EventSource doesn't support POST
