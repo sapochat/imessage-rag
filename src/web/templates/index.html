@@ -41,6 +41,10 @@ var chatHistory = [];
 var seenChunkIds = [];
 var isStreaming = false;
 
+function renderMarkdown(text) {
+    return DOMPurify.sanitize(marked.parse(text));
+}
+
 function scrollToBottom() {
     var thread = document.getElementById('chat-thread');
     thread.scrollTop = thread.scrollHeight;
@@ -253,12 +257,12 @@ function sendMessage(e) {
                         }
                     } else if (payload.type === 'token') {
                         fullAnswer += payload.data;
-                        slots.bubble.textContent = fullAnswer;
+                        slots.bubble.innerHTML = renderMarkdown(fullAnswer);
                         scrollToBottom();
                     } else if (payload.type === 'done') {
                         finish();
                     } else if (payload.type === 'error') {
-                        slots.bubble.textContent = fullAnswer + '\n' + payload.data;
+                        slots.bubble.innerHTML = renderMarkdown(fullAnswer + '\n\n' + payload.data);
                         slots.bubble.classList.add('chat-error');
                         finish();
                     }
