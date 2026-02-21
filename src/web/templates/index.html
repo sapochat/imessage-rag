@@ -70,35 +70,46 @@ function addAssistantMessage() {
     srcBar.style.display = 'none';
     msg.appendChild(srcBar);
 
+    var refPanel = createEl('div', 'source-ref-panel');
+    refPanel.style.display = 'none';
+    msg.appendChild(refPanel);
+
     var bubble = createEl('div', 'chat-bubble chat-bubble-assistant');
     msg.appendChild(bubble);
 
     thread.appendChild(msg);
     scrollToBottom();
-    return {sources: srcBar, bubble: bubble};
+    return {sources: srcBar, refPanel: refPanel, bubble: bubble};
 }
 
-function renderSourceChips(container, sources) {
+function renderSourceChips(container, sources, refPanel) {
     container.textContent = '';
+    container._refPanel = refPanel;
     var newSources = sources.filter(function(s) { return s.is_new; });
     var priorSources = sources.filter(function(s) { return !s.is_new; });
+
+    function makeChip(s, extraCls) {
+        var chip = createEl('span', 'source-chip' + (extraCls ? ' ' + extraCls : ''));
+        chip.textContent = s.contact + ' (' + s.source + (s.similarity ? ', ' + s.similarity : '') + ')';
+        if (s.id) {
+            chip.dataset.chunkId = s.id;
+            chip.onclick = function() { toggleChunkDetail(chip, s, refPanel); };
+        }
+        return chip;
+    }
 
     if (newSources.length > 0) {
         var label = createEl('span', null, 'New: ');
         container.appendChild(label);
         newSources.forEach(function(s) {
-            var chip = createEl('span', 'source-chip');
-            chip.textContent = s.contact + ' (' + s.source + ', ' + s.similarity + ')';
-            container.appendChild(chip);
+            container.appendChild(makeChip(s, ''));
         });
     }
     if (priorSources.length > 0) {
         var sep = createEl('span', 'source-prior-label', (newSources.length ? ' + ' : '') + 'Prior: ');
         container.appendChild(sep);
         priorSources.forEach(function(s) {
-            var chip = createEl('span', 'source-chip source-chip-prior');
-            chip.textContent = s.contact + ' (' + s.source + ')';
-            container.appendChild(chip);
+            container.appendChild(makeChip(s, 'source-chip-prior'));
         });
     }
     container.style.display = 'block';
@@ -109,6 +120,51 @@ function renderSourceChips(container, sources) {
             seenChunkIds.push(s.id);
         }
     });
+}
+
+function toggleChunkDetail(chip, source, refPanel) {
+    // If this chip is already active, collapse
+    if (chip.classList.contains('source-chip-active')) {
+        chip.classList.remove('source-chip-active');
+        refPanel.style.display = 'none';
+        refPanel.textContent = '';
+        return;
+    }
+
+    // Deactivate any previously active chip in the same source bar
+    var parent = chip.parentElement;
+    var prev = parent.querySelector('.source-chip-active');
+    if (prev) prev.classList.remove('source-chip-active');
+
+    chip.classList.add('source-chip-active');
+    refPanel.style.display = 'block';
+    refPanel.textContent = 'Loading\u2026';
+    scrollToBottom();
+
+    var headers = {};
+    if (typeof AUTH_TOKEN !== 'undefined') {
+        headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    }
+    fetch('/api/chunk/' + source.id, { headers: headers })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            refPanel.textContent = '';
+            if (data.text) {
+                var pre = createEl('pre', 'source-ref-text', data.text);
+                refPanel.appendChild(pre);
+            }
+            var meta = data.metadata || source.metadata || {};
+            if (source.source === 'email' && meta.message_id) {
+                var link = createEl('a', 'source-ref-link', 'Open in Mail');
+                link.href = 'message://' + encodeURIComponent(meta.message_id);
+                link.title = 'Open this email in Mail.app';
+                refPanel.appendChild(link);
+            }
+            scrollToBottom();
+        })
+        .catch(function(err) {
+            refPanel.textContent = 'Failed to load: ' + err.message;
+        });
 }
 
 function clearChat() {
@@ -193,7 +249,7 @@ function sendMessage(e) {
 
                     if (payload.type === 'sources') {
                         if (payload.data.length > 0) {
-                            renderSourceChips(slots.sources, payload.data);
+                            renderSourceChips(slots.sources, payload.data, slots.refPanel);
                         }
                     } else if (payload.type === 'token') {
                         fullAnswer += payload.data;

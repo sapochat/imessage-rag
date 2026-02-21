@@ -84,6 +84,9 @@ def chunk_emails(
             f"Subject: {em.subject}\n\n"
             f"{em.body}"
         )
+        metadata = {}
+        if em.message_id:
+            metadata["message_id"] = em.message_id
         yield Chunk(
             source="email",
             contact=em.sender,
@@ -91,4 +94,5 @@ def chunk_emails(
             end_time=em.date,
             text=text,
             message_count=1,
+            metadata=metadata,
         )

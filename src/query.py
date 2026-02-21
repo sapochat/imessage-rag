@@ -70,6 +70,7 @@ def stream_answer(
     safe_results = []
     for r in results:
         safe_results.append({
+            "id": r["id"],
             "contact": r["contact"],
             "source": r["source"],
             "start_time": r["start_time"],
@@ -77,6 +78,7 @@ def stream_answer(
             "message_count": r["message_count"],
             "similarity": round(r["similarity"], 3),
             "text": r["text"][:300],
+            "metadata": r.get("metadata", {}),
         })
     yield {"type": "sources", "data": safe_results}
 
@@ -214,6 +216,7 @@ def stream_answer_chat(
             "message_count": r["message_count"],
             "similarity": round(r["similarity"], 3),
             "text": r["text"][:300],
+            "metadata": r.get("metadata", {}),
             "is_new": r["id"] in new_ids,
         })
     yield {"type": "sources", "data": safe_results}
