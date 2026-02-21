@@ -97,8 +97,7 @@ def cmd_query(args: argparse.Namespace) -> None:
 
 def cmd_serve(args: argparse.Namespace) -> None:
     from src.web.app import run
-    print(f"Starting web UI at http://{args.host}:{args.port}")
-    run(host=args.host, port=args.port)
+    run(port=args.port)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -163,11 +162,6 @@ def main() -> None:
         type=int,
         default=5391,
         help="Port to listen on (default: 5391)",
-    )
-    p_serve.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)",
     )
 
     args = parser.parse_args()

@@ -81,6 +81,7 @@ def search(
     db_path: Path = VECTOR_DB,
 ) -> list[dict]:
     """Find the top-k most similar chunks by cosine similarity."""
+    top_k = max(1, min(top_k, 50))
     conn = _ensure_db(db_path)
     try:
         where = "WHERE embedding IS NOT NULL"
