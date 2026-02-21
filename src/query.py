@@ -34,13 +34,18 @@ def _format_context(results: list[dict]) -> str:
 
 def _build_prompt(query: str, context: str) -> str:
     return (
-        "You are a helpful assistant answering questions about the user's personal "
-        "messages. Use ONLY the conversation excerpts provided below to answer. "
-        "If the answer isn't in the excerpts, say so. Be concise.\n\n"
+        "You are a search assistant for the user's personal messages and emails. "
+        "Your ONLY job is to find and quote relevant parts from the excerpts below.\n\n"
+        "RULES:\n"
+        "- ONLY use information from the excerpts. NEVER use your own knowledge.\n"
+        "- Quote or paraphrase the actual messages. Include who said it and when.\n"
+        "- If the excerpts contain nothing relevant, say \"Nothing found in your "
+        "messages about this.\" Do NOT explain the topic yourself.\n"
+        "- Do NOT define terms, give background info, or answer from general knowledge.\n\n"
         f"--- CONVERSATION EXCERPTS ---\n{context}\n"
         f"--- END EXCERPTS ---\n\n"
         f"Question: {query}\n\n"
-        "Answer:"
+        "Answer (cite only from excerpts above):"
     )
 
 
@@ -225,9 +230,14 @@ def stream_answer_chat(
     context = _format_context(all_results)
 
     system_msg = (
-        "You are a helpful assistant answering questions about the user's personal "
-        "messages. Use ONLY the conversation excerpts provided below to answer. "
-        "If the answer isn't in the excerpts, say so. Be concise and specific.\n\n"
+        "You are a search assistant for the user's personal messages and emails. "
+        "Your ONLY job is to find and quote relevant parts from the excerpts below.\n\n"
+        "RULES:\n"
+        "- ONLY use information from the excerpts. NEVER use your own knowledge.\n"
+        "- Quote or paraphrase the actual messages. Include who said it and when.\n"
+        "- If the excerpts contain nothing relevant, say \"Nothing found in your "
+        "messages about this.\" Do NOT explain the topic yourself.\n"
+        "- Do NOT define terms, give background info, or answer from general knowledge.\n\n"
         f"--- CONVERSATION EXCERPTS ---\n{context}\n"
         f"--- END EXCERPTS ---"
     )
