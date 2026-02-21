@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set active = "ingest" %}
+{% block title %}Ingest — Personal RAG{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:1rem">Ingest Data</h2>
+
+{% if error %}
+<p class="error-msg">{{ error }}</p>
+{% endif %}
+
+<div class="card">
+    <h3>Start New Ingestion</h3>
+    <form hx-post="/ingest/start" hx-target="body" hx-swap="outerHTML">
+        <div class="form-row">
+            <div>
+                <label for="source">Source</label>
+                <select id="source" name="source" required>
+                    <option value="imessage">iMessage</option>
+                    <option value="email">Email</option>
+                </select>
+            </div>
+            <div>
+                <label for="since">Since (e.g. 30d, 7d, 24h — blank for all)</label>
+                <input type="text" id="since" name="since" placeholder="30d">
+            </div>
+            <div style="flex:0 0 auto">
+                <label>&nbsp;</label>
+                <button type="submit">Start Ingest</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if tasks %}
+<h3 style="margin:1.5rem 0 .75rem">Tasks</h3>
+{% for task in tasks %}
+<div id="task-{{ task.id }}"
+     {% if task.status.value in ('running', 'pending') %}
+     hx-get="/ingest/progress/{{ task.id }}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+    {% include "partials/ingest_progress.html" %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

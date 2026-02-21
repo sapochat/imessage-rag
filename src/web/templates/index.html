@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% set active = "query" %}
+{% block title %}Query — Personal RAG{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div id="chat-thread" class="chat-thread">
+        <div class="chat-welcome">
+            <p>Ask anything about your messages. Follow-up questions work — the
+            conversation carries context between turns.</p>
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <div class="chat-settings">
+            <select id="source" title="Source filter">
+                <option value="">All sources</option>
+                <option value="imessage">iMessage</option>
+                <option value="email">Email</option>
+            </select>
+            <select id="top_k" title="Number of chunks to retrieve">
+                <option value="3">Top 3</option>
+                <option value="5" selected>Top 5</option>
+                <option value="10">Top 10</option>
+            </select>
+            <button type="button" id="new-chat-btn" class="btn-sm btn-outline" onclick="clearChat()">New chat</button>
+        </div>
+        <form id="chat-form" onsubmit="return sendMessage(event)">
+            <div class="chat-input-row">
+                <input type="text" id="q" placeholder="Ask a question or follow up..." autocomplete="off" required>
+                <button type="submit" id="send-btn">Send</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var chatHistory = [];
+var isStreaming = false;
+
+function scrollToBottom() {
+    var thread = document.getElementById('chat-thread');
+    thread.scrollTop = thread.scrollHeight;
+}
+
+function createEl(tag, cls, text) {
+    var el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text) el.textContent = text;
+    return el;
+}
+
+function addUserMessage(text) {
+    var thread = document.getElementById('chat-thread');
+    var msg = createEl('div', 'chat-msg chat-msg-user');
+    var bubble = createEl('div', 'chat-bubble chat-bubble-user', text);
+    msg.appendChild(bubble);
+    thread.appendChild(msg);
+    scrollToBottom();
+}
+
+function addAssistantMessage() {
+    var thread = document.getElementById('chat-thread');
+    var msg = createEl('div', 'chat-msg chat-msg-assistant');
+
+    var srcBar = createEl('div', 'chat-sources');
+    srcBar.style.display = 'none';
+    msg.appendChild(srcBar);
+
+    var bubble = createEl('div', 'chat-bubble chat-bubble-assistant');
+    msg.appendChild(bubble);
+
+    thread.appendChild(msg);
+    scrollToBottom();
+    return {sources: srcBar, bubble: bubble};
+}
+
+function renderSourceChips(container, sources) {
+    container.textContent = '';
+    var label = createEl('span', null, 'Retrieved from: ');
+    container.appendChild(label);
+    sources.forEach(function(s) {
+        var chip = createEl('span', 'source-chip');
+        chip.textContent = s.contact + ' (' + s.source + ', ' + s.similarity + ')';
+        container.appendChild(chip);
+    });
+    container.style.display = 'block';
+}
+
+function clearChat() {
+    chatHistory = [];
+    var thread = document.getElementById('chat-thread');
+    thread.textContent = '';
+    var welcome = createEl('div', 'chat-welcome');
+    var p = createEl('p', null,
+        'Ask anything about your messages. Follow-up questions work \u2014 the conversation carries context between turns.');
+    welcome.appendChild(p);
+    thread.appendChild(welcome);
+}
+
+function setInputState(streaming) {
+    isStreaming = streaming;
+    var btn = document.getElementById('send-btn');
+    var input = document.getElementById('q');
+    btn.disabled = streaming;
+    btn.textContent = streaming ? 'Thinking\u2026' : 'Send';
+    if (!streaming) input.focus();
+}
+
+function sendMessage(e) {
+    e.preventDefault();
+    if (isStreaming) return false;
+
+    var input = document.getElementById('q');
+    var q = input.value.trim();
+    if (!q) return false;
+    input.value = '';
+
+    var source = document.getElementById('source').value;
+    var topK = parseInt(document.getElementById('top_k').value, 10) || 5;
+
+    // Remove welcome message on first query
+    var welcome = document.querySelector('.chat-welcome');
+    if (welcome) welcome.remove();
+
+    addUserMessage(q);
+    setInputState(true);
+
+    var slots = addAssistantMessage();
+    var fullAnswer = '';
+
+    var body = JSON.stringify({
+        query: q,
+        history: chatHistory,
+        top_k: topK,
+        source: source || null
+    });
+
+    // Use fetch + ReadableStream since EventSource doesn't support POST
+    fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body
+    }).then(function(response) {
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+
+        function pump() {
+            return reader.read().then(function(result) {
+                if (result.done) {
+                    finish();
+                    return;
+                }
+                buffer += decoder.decode(result.value, {stream: true});
+                var lines = buffer.split('\n');
+                buffer = lines.pop();  // keep incomplete line in buffer
+
+                lines.forEach(function(line) {
+                    if (line.indexOf('data: ') !== 0) return;
+                    var payload;
+                    try { payload = JSON.parse(line.slice(6)); } catch(e) { return; }
+
+                    if (payload.type === 'sources') {
+                        if (payload.data.length > 0) {
+                            renderSourceChips(slots.sources, payload.data);
+                        }
+                    } else if (payload.type === 'token') {
+                        fullAnswer += payload.data;
+                        slots.bubble.textContent = fullAnswer;
+                        scrollToBottom();
+                    } else if (payload.type === 'done') {
+                        finish();
+                    } else if (payload.type === 'error') {
+                        slots.bubble.textContent = fullAnswer + '\n' + payload.data;
+                        slots.bubble.classList.add('chat-error');
+                        finish();
+                    }
+                });
+                return pump();
+            });
+        }
+
+        function finish() {
+            chatHistory.push({role: 'user', content: q});
+            if (fullAnswer) {
+                chatHistory.push({role: 'assistant', content: fullAnswer});
+            }
+            setInputState(false);
+            scrollToBottom();
+        }
+
+        return pump();
+    }).catch(function(err) {
+        slots.bubble.textContent = 'Connection error: ' + err.message;
+        slots.bubble.classList.add('chat-error');
+        setInputState(false);
+    });
+
+    return false;
+}
+</script>
+{% endblock %}

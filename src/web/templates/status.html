@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set active = "status" %}
+{% block title %}Status — Personal RAG{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h2>Status</h2>
+    <button class="btn-sm btn-outline"
+            hx-get="/status/api/refresh"
+            hx-target="#status-cards"
+            hx-swap="innerHTML">
+        Refresh
+    </button>
+</div>
+<div id="status-cards">
+    {% include "partials/status_cards.html" %}
+</div>
+{% endblock %}
