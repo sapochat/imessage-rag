@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Generator, Iterable
 
 from src.config import CHUNK_WINDOW_HOURS
+from src.ingest.email import RawEmail
 from src.ingest.imessage import RawMessage
 
 
@@ -68,3 +69,26 @@ def chunk_imessages(
     # Flush remaining
     if buffer:
         yield _format_imessage_chunk(buffer, current_contact)
+
+
+def chunk_emails(
+    emails: Iterable[RawEmail],
+) -> Generator[Chunk, None, None]:
+    """Create one chunk per email with a formatted header + body."""
+    for em in emails:
+        date_str = em.date.strftime("%Y-%m-%d %H:%M")
+        text = (
+            f"From: {em.sender}\n"
+            f"To: {em.recipients}\n"
+            f"Date: {date_str}\n"
+            f"Subject: {em.subject}\n\n"
+            f"{em.body}"
+        )
+        yield Chunk(
+            source="email",
+            contact=em.sender,
+            start_time=em.date,
+            end_time=em.date,
+            text=text,
+            message_count=1,
+        )

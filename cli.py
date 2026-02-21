@@ -5,8 +5,9 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-from src.chunker import chunk_imessages
+from src.chunker import chunk_emails, chunk_imessages
 from src.embed import get_embedding
+from src.ingest.email import extract_emails
 from src.ingest.imessage import extract_messages
 from src.query import generate_answer, retrieve
 from src.vectordb import get_stats, insert_chunk
@@ -31,8 +32,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     if args.source == "imessage":
         _ingest_imessage(since)
     elif args.source == "email":
-        print("Email ingestion not implemented yet.")
-        sys.exit(1)
+        _ingest_email(since)
     else:
         print(f"Unknown source: {args.source}")
         sys.exit(1)
@@ -75,6 +75,40 @@ def _ingest_imessage(since: datetime | None) -> None:
     elapsed = time.time() - start
     print(f"\nDone. {total_chunks} chunks from {total_messages} messages "
           f"in {elapsed:.1f}s")
+
+
+def _ingest_email(since: datetime | None) -> None:
+    since_str = since.strftime("%Y-%m-%d") if since else "all time"
+    print(f"Extracting emails since {since_str}...")
+
+    emails = extract_emails(since=since)
+    chunks = chunk_emails(emails)
+
+    total_chunks = 0
+    start = time.time()
+
+    for chunk in chunks:
+        total_chunks += 1
+
+        if total_chunks % 10 == 0:
+            elapsed = time.time() - start
+            rate = total_chunks / elapsed if elapsed > 0 else 0
+            print(
+                f"  Processed: {total_chunks} emails [{rate:.1f} chunks/s]",
+                end="\r",
+            )
+
+        try:
+            embedding = get_embedding(chunk.text)
+        except Exception as e:
+            print(f"\n  Warning: embedding failed for email "
+                  f"({chunk.contact}, {chunk.start_time.strftime('%Y-%m-%d %H:%M')}): {e}")
+            continue
+
+        insert_chunk(chunk, embedding)
+
+    elapsed = time.time() - start
+    print(f"\nDone. {total_chunks} email chunks in {elapsed:.1f}s")
 
 
 def cmd_query(args: argparse.Namespace) -> None:
