@@ -77,8 +77,9 @@ class TaskManager:
         return task
 
     def _run_ingest(self, task: IngestTask) -> None:
-        from src.chunker import chunk_imessages
+        from src.chunker import chunk_emails, chunk_imessages
         from src.embed import get_embedding
+        from src.ingest.email import extract_emails
         from src.ingest.imessage import extract_messages
         from src.vectordb import insert_chunk
 
@@ -94,9 +95,12 @@ class TaskManager:
             if task.source == "imessage":
                 messages = extract_messages(since=since_dt)
                 chunks = chunk_imessages(messages)
+            elif task.source == "email":
+                emails = extract_emails(since=since_dt)
+                chunks = chunk_emails(emails)
             else:
                 task.status = TaskStatus.FAILED
-                task.error = f"Source '{task.source}' not implemented yet"
+                task.error = f"Unknown source '{task.source}'"
                 task.finished_at = datetime.now(tz=timezone.utc)
                 return
 

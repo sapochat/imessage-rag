@@ -4,8 +4,8 @@ Local-only RAG system that indexes your iMessage and Apple Mail for semantic sea
 
 ## How it works
 
-1. **Ingest** — Streams messages from iMessage's SQLite DB (Apple Mail support planned)
-2. **Chunk** — Groups iMessages by contact + 4-hour time window
+1. **Ingest** — Streams messages from iMessage's SQLite DB and parses Apple Mail `.emlx` files
+2. **Chunk** — Groups iMessages by contact + 4-hour time window; one chunk per email with header metadata
 3. **Embed** — Generates vectors via Ollama (`nomic-embed-text`) and stores in a local SQLite DB
 4. **Query** — Semantic search over embeddings, then streams an answer from Gemma 3 4B
 5. **Multi-turn chat** — Follow-up questions carry full context: prior chunks are accumulated across turns (capped at 20) so the model always sees the raw conversations, not just previous answers
@@ -45,12 +45,15 @@ CHUNK_WINDOW_HOURS=4
 ```bash
 # Ingest recent messages (start here)
 python3 cli.py ingest --source imessage --since 30d
+python3 cli.py ingest --source email --since 30d
 
 # Full historical backfill (run overnight)
 python3 cli.py ingest --source imessage
+python3 cli.py ingest --source email
 
 # Query
 python3 cli.py query "What restaurant did Sarah recommend?"
+python3 cli.py query "Find receipts from last month" --source email
 
 # Retrieve raw chunks without LLM generation
 python3 cli.py query "meeting notes" --retrieve-only --top-k 10
@@ -76,8 +79,9 @@ Three pages:
 ## Architecture
 
 ```
-iMessage (chat.db) ── extract → chunk → embed (Ollama) → SQLite vector DB
-                                                               │
+iMessage (chat.db) ─┐
+                    ├─ extract → chunk → embed (Ollama) → SQLite vector DB
+Apple Mail (.emlx) ─┘                                          │
                                                                ▼
                       CLI / Web UI ── query → semantic search + Gemma 3 → answer
 ```
