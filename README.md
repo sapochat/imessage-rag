@@ -24,7 +24,7 @@ Local-only RAG system that indexes your iMessage and Apple Mail for semantic sea
 ## Setup
 
 ```bash
-git clone <repo-url> && cd personal-rag
+git clone https://github.com/vishoo7/local-private-rag.git && cd local-private-rag
 pip install -e .
 ```
 
