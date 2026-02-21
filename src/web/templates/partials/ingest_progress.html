@@ -1,0 +1,28 @@
+<div id="task-{{ task.id }}" class="card"
+     {% if task.status.value in ('running', 'pending') %}
+     hx-get="/ingest/progress/{{ task.id }}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+        <div>
+            <strong>{{ task.source }}</strong>
+            {% if task.since %}<span style="color:var(--muted);font-size:.85rem"> since {{ task.since }}</span>{% endif %}
+            <span class="task-status {{ task.status.value }}">
+                {% if task.status.value == 'running' %}<span class="spinner"></span>{% endif %}
+                {{ task.status.value }}
+            </span>
+        </div>
+        {% if task.status.value == 'running' %}
+        <form hx-post="/ingest/cancel/{{ task.id }}" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">
+            <button type="submit" class="btn-sm btn-outline">Cancel</button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="mono">
+        {{ task.chunks_processed }} chunks &middot; {{ task.messages_processed }} messages
+    </div>
+    {% if task.error %}
+    <p class="error-msg" style="margin-top:.5rem">{{ task.error }}</p>
+    {% endif %}
+</div>

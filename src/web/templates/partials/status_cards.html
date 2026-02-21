@@ -1,0 +1,44 @@
+<div class="grid">
+    <div class="card">
+        <h3>Vector Database</h3>
+        <p><strong>{{ stats.total_chunks }}</strong> chunks</p>
+        {% for source, count in stats.by_source.items() %}
+        <p style="color:var(--muted);font-size:.85rem">{{ source }}: {{ count }}</p>
+        {% endfor %}
+        <p style="margin-top:.5rem;font-size:.85rem;color:var(--muted)">
+            Size: <span class="mono">{{ stats.db_size_mb }} MB</span>
+        </p>
+    </div>
+
+    <div class="card">
+        <h3>Ollama</h3>
+        <p>
+            Status:
+            {% if ollama.status == 'online' %}
+            <span class="status-ok">online</span>
+            {% else %}
+            <span class="status-err">offline</span>
+            {% endif %}
+        </p>
+        {% if ollama.status == 'online' %}
+        <p style="font-size:.85rem;margin-top:.5rem">
+            Embed model:
+            {% if ollama.has_embed %}<span class="status-ok">ready</span>{% else %}<span class="status-err">not found</span>{% endif %}
+        </p>
+        <p style="font-size:.85rem">
+            Gen model:
+            {% if ollama.has_gen %}<span class="status-ok">ready</span>{% else %}<span class="status-err">not found</span>{% endif %}
+        </p>
+        <details style="margin-top:.75rem;font-size:.8rem;color:var(--muted)">
+            <summary>Available models ({{ ollama.models|length }})</summary>
+            <ul style="margin-top:.25rem;padding-left:1.25rem">
+                {% for m in ollama.models %}
+                <li class="mono">{{ m }}</li>
+                {% endfor %}
+            </ul>
+        </details>
+        {% else %}
+        <p style="font-size:.85rem;color:var(--muted);margin-top:.5rem">{{ ollama.error }}</p>
+        {% endif %}
+    </div>
+</div>
