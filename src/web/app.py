@@ -91,10 +91,12 @@ def create_app() -> FastAPI:
     from src.web.routes.query import router as query_router
     from src.web.routes.ingest import router as ingest_router
     from src.web.routes.status import router as status_router
+    from src.web.routes.settings import router as settings_router
 
     app.include_router(query_router)
     app.include_router(ingest_router)
     app.include_router(status_router)
+    app.include_router(settings_router)
 
     return app
 

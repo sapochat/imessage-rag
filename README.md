@@ -36,6 +36,12 @@ EMBED_MODEL=nomic-embed-text
 GENERATION_MODEL=gemma3:4b
 VECTOR_DB=~/.personal-rag/vectors.db
 CHUNK_WINDOW_HOURS=4
+
+# Use an OpenAI-compatible proxy (e.g. maple.ai) for generation instead of Ollama
+# GENERATION_BACKEND=openai
+# GENERATION_API_URL=http://127.0.0.1:8080/v1
+# GENERATION_MODEL=llama-3.3-70b
+# GENERATION_API_KEY=your-token-here
 ```
 
 ## Usage
@@ -86,7 +92,7 @@ Apple Mail (.emlx) ─┘                                          │
                       CLI / Web UI ── query → semantic search + Gemma 3 → answer
 ```
 
-All processing is local. The only network calls are to `localhost:11434` (Ollama).
+All processing is local. Network calls go only to localhost — Ollama for embeddings, and optionally an OpenAI-compatible proxy (e.g. maple.ai at `127.0.0.1:8080`) for generation.
 
 ## Performance
 
@@ -104,7 +110,7 @@ On Apple Silicon (M1/M2/M3):
 
 This system exists because your messages are private. By design:
 
-- Zero external API calls — everything runs through Ollama on localhost
+- Zero external API calls — everything runs on localhost (Ollama + optional local proxy)
 - No telemetry, no analytics, no cloud services
 - Vector DB stored locally at `~/.personal-rag/vectors.db`
 - Source data is never copied — only extracted text and embeddings are stored
