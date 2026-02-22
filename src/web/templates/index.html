@@ -271,7 +271,10 @@ function sendMessage(e) {
             });
         }
 
+        var finished = false;
         function finish() {
+            if (finished) return;
+            finished = true;
             chatHistory.push({role: 'user', content: q});
             if (fullAnswer) {
                 chatHistory.push({role: 'assistant', content: fullAnswer});

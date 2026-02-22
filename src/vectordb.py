@@ -115,6 +115,8 @@ def search(
         scored = []
         for row in rows:
             emb = np.frombuffer(row[7], dtype=np.float32)
+            if emb.shape != query_vec.shape:
+                continue
             emb_norm = np.linalg.norm(emb)
             if emb_norm == 0:
                 continue
