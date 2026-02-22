@@ -29,15 +29,14 @@ def _validate_localhost(url: str) -> str:
         addr = socket.gethostbyname(hostname)
     except socket.gaierror:
         raise ValueError(
-            f"OLLAMA_URL hostname '{hostname}' cannot be resolved. "
-            f"Only localhost URLs are allowed (e.g. http://localhost:11434)."
+            f"Hostname '{hostname}' cannot be resolved. "
+            f"Only localhost URLs are allowed."
         )
 
     if addr not in _LOCALHOST_ADDRS:
         raise ValueError(
-            f"OLLAMA_URL must point to localhost, but '{hostname}' resolves to {addr}. "
-            f"This system never sends data off-machine. "
-            f"Use http://localhost:11434 or http://127.0.0.1:11434."
+            f"URL must point to localhost, but '{hostname}' resolves to {addr}. "
+            f"This system never sends data off-machine."
         )
 
     return url
@@ -49,10 +48,16 @@ IMESSAGE_DB = _expand(os.getenv("IMESSAGE_DB", "~/Library/Messages/chat.db"))
 # Apple Mail
 MAIL_DIR = _expand(os.getenv("MAIL_DIR", "~/Library/Mail/V10"))
 
-# Ollama
+# Ollama (always used for embeddings)
 OLLAMA_URL = _validate_localhost(os.getenv("OLLAMA_URL", "http://localhost:11434"))
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma3:4b")
+
+# Generation backend — "ollama" (default) or "openai" (e.g. maple.ai proxy)
+GENERATION_BACKEND = os.getenv("GENERATION_BACKEND", "ollama").lower()
+_gen_api_url = os.getenv("GENERATION_API_URL", "")
+GENERATION_API_URL = _validate_localhost(_gen_api_url) if _gen_api_url else ""
+GENERATION_API_KEY = os.getenv("GENERATION_API_KEY", "")
 
 # Vector DB
 VECTOR_DB = _expand(os.getenv("VECTOR_DB", "~/.personal-rag/vectors.db"))

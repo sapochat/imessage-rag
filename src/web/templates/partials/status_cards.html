@@ -11,7 +11,7 @@
     </div>
 
     <div class="card">
-        <h3>Ollama</h3>
+        <h3>Ollama <span style="font-size:.75rem;color:var(--muted)">(embeddings{% if generation.backend == 'ollama' %} + generation{% endif %})</span></h3>
         <p>
             Status:
             {% if ollama.status == 'online' %}
@@ -25,10 +25,12 @@
             Embed model:
             {% if ollama.has_embed %}<span class="status-ok">ready</span>{% else %}<span class="status-err">not found</span>{% endif %}
         </p>
+        {% if ollama.has_gen is not none %}
         <p style="font-size:.85rem">
             Gen model:
             {% if ollama.has_gen %}<span class="status-ok">ready</span>{% else %}<span class="status-err">not found</span>{% endif %}
         </p>
+        {% endif %}
         <details style="margin-top:.75rem;font-size:.8rem;color:var(--muted)">
             <summary>Available models ({{ ollama.models|length }})</summary>
             <ul style="margin-top:.25rem;padding-left:1.25rem">
@@ -41,4 +43,27 @@
         <p style="font-size:.85rem;color:var(--muted);margin-top:.5rem">{{ ollama.error }}</p>
         {% endif %}
     </div>
+
+    {% if generation.backend != 'ollama' %}
+    <div class="card">
+        <h3>Generation Backend</h3>
+        <p style="font-size:.85rem">
+            Backend: <span class="mono">{{ generation.backend }}</span>
+        </p>
+        <p style="font-size:.85rem">
+            Model: <span class="mono">{{ generation.model }}</span>
+        </p>
+        <p style="font-size:.85rem;margin-top:.5rem">
+            Status:
+            {% if generation.status == 'online' %}
+            <span class="status-ok">online</span>
+            {% else %}
+            <span class="status-err">offline</span>
+            {% endif %}
+        </p>
+        {% if generation.error is defined %}
+        <p style="font-size:.8rem;color:var(--muted);margin-top:.25rem">{{ generation.error }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>

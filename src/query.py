@@ -1,12 +1,9 @@
-"""Semantic search over the vector DB and answer generation via Ollama."""
+"""Semantic search over the vector DB and LLM-powered answer generation."""
 
-import json
 from datetime import datetime, timezone
 from typing import Generator
 
-import requests
-
-from src.config import GENERATION_MODEL, OLLAMA_URL
+from src.generate import generate_once, stream_chat
 from src.embed import get_embedding
 from src.vectordb import fetch_by_ids, search
 
@@ -89,28 +86,14 @@ def stream_answer(
 
     context = _format_context(results)
     prompt = _build_prompt(query, context)
+    messages = [{"role": "user", "content": prompt}]
 
     try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": GENERATION_MODEL, "prompt": prompt, "stream": True},
-            stream=True,
-            timeout=300,
-        )
-        resp.raise_for_status()
+        for token in stream_chat(messages):
+            yield {"type": "token", "data": token}
     except Exception as e:
         yield {"type": "error", "data": f"Generation failed: {e}"}
         return
-
-    for line in resp.iter_lines():
-        if not line:
-            continue
-        data = json.loads(line)
-        token = data.get("response", "")
-        if token:
-            yield {"type": "token", "data": token}
-        if data.get("done"):
-            break
 
     yield {"type": "done", "data": ""}
 
@@ -120,8 +103,9 @@ def reformulate_query(
 ) -> str:
     """Rewrite a follow-up question as a standalone search query.
 
-    Uses Ollama to combine conversation context with the new message so that
-    vector-search retrieval works on follow-ups like "tell me more about that".
+    Uses the configured generation backend to combine conversation context
+    with the new message so that vector-search retrieval works on follow-ups
+    like "tell me more about that".
     If there's no history, returns the original message unchanged.
     """
     if not history:
@@ -144,13 +128,7 @@ def reformulate_query(
     )
 
     try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": GENERATION_MODEL, "prompt": prompt, "stream": False},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        rewritten = resp.json().get("response", "").strip()
+        rewritten = generate_once(prompt)
         return rewritten if rewritten else user_msg
     except Exception:
         return user_msg
@@ -226,7 +204,7 @@ def stream_answer_chat(
         })
     yield {"type": "sources", "data": safe_results}
 
-    # Step 4 — build messages array for Ollama /api/chat
+    # Step 4 — build messages array for chat completion
     context = _format_context(all_results)
 
     system_msg = (
@@ -251,26 +229,11 @@ def stream_answer_chat(
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={"model": GENERATION_MODEL, "messages": messages, "stream": True},
-            stream=True,
-            timeout=300,
-        )
-        resp.raise_for_status()
+        for token in stream_chat(messages):
+            yield {"type": "token", "data": token}
     except Exception as e:
         yield {"type": "error", "data": f"Generation failed: {e}"}
         return
-
-    for line in resp.iter_lines():
-        if not line:
-            continue
-        data = json.loads(line)
-        token = data.get("message", {}).get("content", "")
-        if token:
-            yield {"type": "token", "data": token}
-        if data.get("done"):
-            break
 
     yield {"type": "done", "data": ""}
 

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set active = "settings" %}
+{% block title %}Settings — Personal RAG{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:1rem">Settings</h2>
+
+<div class="card" style="max-width:560px">
+    <h3 style="margin-bottom:1rem">Generation Backend</h3>
+
+    <form hx-post="/settings/save" hx-target="#settings-result" hx-swap="innerHTML">
+        <div style="margin-bottom:1rem">
+            <label for="generation_backend">Backend</label>
+            <select id="generation_backend" name="generation_backend" onchange="toggleOpenAI()">
+                <option value="ollama" {% if current.generation_backend == 'ollama' %}selected{% endif %}>Ollama</option>
+                <option value="openai" {% if current.generation_backend == 'openai' %}selected{% endif %}>OpenAI-compatible</option>
+            </select>
+        </div>
+
+        <div style="margin-bottom:1rem">
+            <label for="generation_model">Model</label>
+            <input type="text" id="generation_model" name="generation_model"
+                   value="{{ current.generation_model }}" placeholder="e.g. gemma3:4b">
+        </div>
+
+        <div id="openai-fields" style="{% if current.generation_backend != 'openai' %}display:none;{% endif %}">
+            <div style="margin-bottom:1rem">
+                <label for="generation_api_url">API URL</label>
+                <input type="text" id="generation_api_url" name="generation_api_url"
+                       value="{{ current.generation_api_url }}" placeholder="http://localhost:1234/v1">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label for="generation_api_key">API Key</label>
+                <input type="password" id="generation_api_key" name="generation_api_key"
+                       placeholder="Leave blank to keep existing">
+            </div>
+        </div>
+
+        <button type="submit">Save &amp; Test Connection</button>
+    </form>
+
+    <div id="settings-result" style="margin-top:1rem"></div>
+</div>
+
+<p style="margin-top:1.5rem;font-size:.8rem;color:var(--muted)">
+    Embedding settings (model, Ollama URL) and database paths are configured via <span class="mono">.env</span> and require a restart.
+</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleOpenAI() {
+    var sel = document.getElementById('generation_backend');
+    var fields = document.getElementById('openai-fields');
+    fields.style.display = sel.value === 'openai' ? '' : 'none';
+}
+</script>
+{% endblock %}
