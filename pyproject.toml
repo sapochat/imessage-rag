@@ -3,15 +3,17 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "personal-rag"
+name = "imessage-rag"
 version = "0.1.0"
-description = "Local-only RAG system for iMessage and Apple Mail"
+description = "Local-only semantic search and Q&A over your iMessage history."
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
+authors = [{ name = "Santi Pochat" }]
 dependencies = [
     "numpy>=2.0,<3",
     "requests>=2.31,<3",
     "python-dotenv>=1.0,<2",
-    "beautifulsoup4>=4.12,<5",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",
     "jinja2>=3.1,<4",
@@ -22,13 +24,9 @@ dependencies = [
 test = ["pytest>=8.0,<9"]
 
 [project.scripts]
-personal-rag = "src.cli:main"
-personal-rag-mcp = "src.mcp_server:main"
-
-[tool.setuptools]
-package-dir = {"" = "."}
-py-modules = ["cli"]
+imessage-rag     = "imessage_rag.cli:main"
+imessage-rag-mcp = "imessage_rag.mcp_server:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+where = ["src"]
+include = ["imessage_rag*"]
