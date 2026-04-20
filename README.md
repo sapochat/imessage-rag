@@ -1,286 +1,135 @@
-# Personal RAG
+# imessage-rag
 
-Local-only RAG system that indexes your iMessage and Apple Mail for semantic search and AI-powered Q&A. Everything runs on localhost — no data ever leaves your machine.
+Local-only semantic search and Q&A over your iMessage history. Everything runs on your machine — no data ever leaves. macOS on Apple Silicon only.
 
-## How it works
+## What it does
 
-1. **Ingest** — Streams messages from iMessage's SQLite DB and parses Apple Mail `.emlx` files
-2. **Chunk** — Groups iMessages by conversation thread + 4-hour time window; one chunk per email with header metadata
-3. **Embed** — Generates vectors via Ollama (`qwen3-embedding:8b` by default) and stores in a local SQLite DB
-4. **Query** — Semantic search over embeddings, then streams an answer from Gemma 3 4B
-5. **Multi-turn chat** — Follow-up questions carry full context: prior chunks are accumulated across turns (capped at 20) so the model always sees the raw conversations, not just previous answers
+1. **Ingests** your iMessages from `~/Library/Messages/chat.db` without copying the raw data.
+2. **Chunks** messages into conversation windows by contact and time.
+3. **Embeds** each chunk locally with Ollama and stores vectors in SQLite.
+4. **Retrieves + generates** — type a natural-language question, get an answer grounded in the actual messages, with sources.
+
+Three ways to use it:
+
+- **CLI**: `imessage-rag query "what restaurant did sarah recommend?"`
+- **Web UI**: `imessage-rag serve` opens a local chat interface with streaming responses and multi-turn follow-ups.
+- **MCP server**: expose your iMessage index as a tool to LM Studio or any MCP client.
 
 ## Requirements
 
 - macOS on Apple Silicon
 - Python 3.11+
-- [Ollama](https://ollama.com) running locally with two models pulled:
-  ```
-  ollama pull qwen3-embedding:8b
+- [Ollama](https://ollama.com) running locally, with:
+  ```bash
+  ollama pull nomic-embed-text
   ollama pull gemma3:4b
   ```
-- Terminal with **Full Disk Access** (System Settings > Privacy & Security) to read `chat.db` and Mail directories
+- Terminal must have **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access) so it can read `chat.db`.
 
-## Setup
-
-### Fastest setup
-
-From the repo root:
+## Install
 
 ```bash
+git clone https://github.com/<your-handle>/imessage-rag.git
+cd imessage-rag
 ./scripts/setup.sh
 source .venv/bin/activate
 ```
 
-That creates the virtual environment, installs dependencies, and installs the
-`personal-rag` and `personal-rag-mcp` commands into `.venv/bin/`.
+That creates the virtualenv, installs the package in editable mode, and puts `imessage-rag` and `imessage-rag-mcp` on your PATH.
 
-### Manual setup
-
-```bash
-git clone https://github.com/vishoo7/local-private-rag.git
-cd local-private-rag
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -U pip
-python3 -m pip install -e .
-```
-
-### Optional `.env`
-
-You do not need a `.env` file to get started. The defaults are fine.
-
-If you want to pin the DB path or embedding size, create a `.env` file in the
-repo root:
-
-```env
-OLLAMA_URL=http://localhost:11434
-EMBED_MODEL=qwen3-embedding:8b
-# Optional: request a smaller output dimension from qwen3-embedding:8b
-# EMBED_DIMENSIONS=1024
-GENERATION_MODEL=gemma3:4b
-VECTOR_DB=~/.personal-rag/vectors.db
-CHUNK_WINDOW_HOURS=4
-```
-
-## First-time run
-
-### 1. Activate the virtual environment
-
-Run this every time you open a new terminal:
+## Quickstart
 
 ```bash
-cd /path/to/local-private-rag
-source .venv/bin/activate
+# 1. Confirm Ollama and models are reachable
+imessage-rag doctor
+
+# 2. Ingest the last 30 days of messages with one person
+imessage-rag ingest --contact +15551234567 --since 30d
+
+# 3. Check what loaded
+imessage-rag status
+
+# 4. Ask a question
+imessage-rag query "what did we decide about the trip?"
 ```
 
-### 2. Make sure Ollama is ready
+## CLI reference
+
+| Command | What it does |
+|---|---|
+| `ingest --contact <handle> [--since 30d]` | Ingest 1:1 messages with one contact. Handle can be phone or email. |
+| `ingest --participants +15551234567,+15557654321` | Ingest one exact group thread (your own number is implicit). |
+| `ingest --since 30d` | Ingest all contacts, last 30 days. Omit `--since` for full history. |
+| `query "<question>"` | Retrieve + generate an answer. |
+| `query "<question>" --retrieve-only --top-k 10` | Show raw matching chunks with no LLM. |
+| `status` | Chunk count and DB size. |
+| `doctor` | Check Ollama, models, and active config. |
+| `config` | Print active settings and paths. |
+| `reset-db --yes` | Delete the vector DB and start over. |
+| `serve [--port 5391]` | Start the web UI on localhost with an auth token. |
+
+## Web UI
 
 ```bash
-ollama pull qwen3-embedding:8b
-ollama pull gemma3:4b
-personal-rag doctor
+imessage-rag serve
+# Prints a URL with a generated auth token — open it
 ```
 
-If `personal-rag doctor` says Ollama is offline, start Ollama first and rerun
-the command.
+Three tabs:
 
-### 3. Start with a clean database
+- **Query** — multi-turn chat with streaming. Retrieved chunks accumulate across turns so follow-ups see the same raw context.
+- **Ingest** — kick off ingest jobs, watch progress, cancel.
+- **Status** — chunk counts, DB size, Ollama health.
 
-Use this when you want to rebuild from scratch:
+## MCP server (for LM Studio and friends)
 
-```bash
-personal-rag reset-db --yes
-```
+Expose your iMessage index as an MCP tool. Three tools are provided:
 
-### 4. Ingest messages
+- `search_messages` — semantic search
+- `get_chunk` — fetch a chunk by ID
+- `get_stats` — DB stats
 
-One person only:
-
-```bash
-personal-rag ingest --source imessage --contact +15551234567
-```
-
-One exact group thread:
-
-```bash
-personal-rag ingest --source imessage --participants +15551234567,+15557654321
-```
-
-Important:
-
-- `--contact` means only 1:1 chats with that number
-- `--participants` means the exact remote participant set for a group chat
-- your own number is implicit, so do not include your own number in `--participants`
-
-### 5. Check what was loaded
-
-```bash
-personal-rag status
-```
-
-### 6. Ask questions
-
-```bash
-personal-rag query "What did they say about dinner?"
-```
-
-Show raw matching chunks only:
-
-```bash
-personal-rag query "dinner plans" --retrieve-only --top-k 10
-```
-
-## Common commands
-
-```bash
-# Show active DB/model config
-personal-rag config
-
-# Check whether the local services and models are ready
-personal-rag doctor
-
-# Reset the DB and start fresh
-personal-rag reset-db --yes
-
-# Recent-only ingest
-personal-rag ingest --source imessage --since 30d
-personal-rag ingest --source email --since 30d
-
-# Full historical ingest
-personal-rag ingest --source imessage
-personal-rag ingest --source email
-```
-
-### Web UI
-
-```bash
-personal-rag serve
-# Prints a URL with an auth token — open it in your browser
-# e.g. http://127.0.0.1:5391?token=<generated-token>
-```
-
-Three pages:
-
-- **Query** — Multi-turn chat interface with streaming responses. Ask a question, then follow up naturally ("tell me more about that", "what else did they say"). Retrieved chunks accumulate across turns so you can drill deeper without losing context.
-- **Ingest** — Start ingestion jobs, watch progress live, cancel if needed.
-- **Status** — Chunk counts, DB size, Ollama connectivity and model availability.
-
-### MCP for LM Studio
-
-This repo also includes a minimal stdio MCP server so other local LLM apps can
-query the vector DB without using this app's built-in answer generation.
-
-The MCP server exposes three tools:
-
-- `search_messages` — semantic search over the local vector DB
-- `get_chunk` — fetch a full chunk by ID
-- `get_stats` — basic DB counts and size
-
-### LM Studio setup
-
-Use the virtualenv binary directly. This avoids PATH problems.
-
-Example LM Studio `mcp.json` entry:
+LM Studio `mcp.json` example:
 
 ```json
 {
   "mcpServers": {
-    "personal-rag": {
-      "command": "/absolute/path/to/local-private-rag/.venv/bin/personal-rag-mcp",
+    "imessage-rag": {
+      "command": "/absolute/path/to/imessage-rag/.venv/bin/imessage-rag-mcp",
       "args": []
     }
   }
 }
 ```
 
-If that still gives import errors, use Python directly:
+## Configuration
 
-```json
-{
-  "mcpServers": {
-    "personal-rag": {
-      "command": "/absolute/path/to/local-private-rag/.venv/bin/python3",
-      "args": ["-m", "src.mcp_server"],
-      "env": {
-        "PYTHONPATH": "/absolute/path/to/local-private-rag"
-      }
-    }
-  }
-}
-```
+All config is environment variables. Defaults work out of the box. See [`.env.example`](.env.example) for the full list. The most common overrides:
 
-Before debugging LM Studio, you can test the MCP command yourself:
+| Variable | Default | Purpose |
+|---|---|---|
+| `EMBED_MODEL` | `nomic-embed-text` | Set to `qwen3-embedding:8b` with `EMBED_DIMENSIONS=4096` for higher-quality retrieval at the cost of ~9GB download and 3-5× slower ingest. |
+| `GENERATION_MODEL` | `gemma3:4b` | Any local Ollama chat model. |
+| `VECTOR_DB` | `~/.imessage-rag/vectors.db` | Where embeddings live. |
+| `CHUNK_WINDOW_HOURS` | `4` | How to group messages into conversation chunks. |
 
-```bash
-source .venv/bin/activate
-.venv/bin/personal-rag-mcp
-```
-
-If that command starts and just waits, it is working.
-
-LM Studio can then call `search_messages`, inspect the returned chunk IDs, and
-use `get_chunk` when it needs the full conversation text.
-
-## If something breaks
-
-Try these in order:
-
-```bash
-source .venv/bin/activate
-personal-rag doctor
-personal-rag config
-personal-rag reset-db --yes
-```
-
-If the CLI command itself is broken, use the module form from the repo root:
-
-```bash
-PYTHONPATH=$PWD python3 -m src.cli doctor
-PYTHONPATH=$PWD python3 -m src.cli ingest --source imessage --contact +15551234567
-```
-
-## Architecture
-
-```
-iMessage (chat.db) ─┐
-                    ├─ extract → chunk → embed (Ollama) → SQLite vector DB
-Apple Mail (.emlx) ─┘                                          │
-                                                               ▼
-                      CLI / Web UI ── query → semantic search + Gemma 3 → answer
-```
-
-All processing is local. Network calls go only to localhost — Ollama for embeddings, and optionally an OpenAI-compatible proxy (e.g. maple.ai at `127.0.0.1:8080`) for generation.
-
-## Performance
-
-On Apple Silicon (M1/M2/M3):
-
-| Operation | Speed |
-|-----------|-------|
-| Embedding | ~50-100 chunks/min |
-| Full backfill | Several hours (run overnight) |
-| Query retrieval | <100ms |
-| Answer generation | 5-20s |
-| Disk usage | ~2-5 GB for text + embeddings |
+Switching `EMBED_MODEL` or `EMBED_DIMENSIONS` means existing vectors are incompatible — `imessage-rag reset-db --yes` and re-ingest.
 
 ## Privacy
 
-This system exists because your messages are private. By design:
+This project exists because your iMessages are private. By design:
 
-- Zero external API calls — everything runs on localhost (Ollama + optional local proxy)
-- No telemetry, no analytics, no cloud services
-- Vector DB stored locally at `~/.personal-rag/vectors.db`
-- Source data is never copied — only extracted text and embeddings are stored
+- Zero external API calls. `OLLAMA_URL` is validated to resolve to loopback at startup.
+- No telemetry, no analytics.
+- Source data is never copied — only extracted text and embeddings are stored.
+- The vector DB lives under your home directory and is git-ignored by default.
 
 ## Caveats
 
-The ingestors read directly from Apple's internal data formats — iMessage's `chat.db` SQLite schema and Apple Mail's `.emlx` file structure. These are undocumented, private formats that Apple can change in any macOS update. If ingestion breaks after an OS upgrade, the likely culprit is a schema or format change in one of these sources.
+- `chat.db` is Apple's internal SQLite schema. If Apple changes it in a macOS update, ingestion may break. The schema has been stable since ~Big Sur, but this is a real risk of the tool.
+- Retrieval quality depends heavily on the embedding model. `nomic-embed-text` is the default for speed; `qwen3-embedding:8b` is noticeably better on some queries but takes ~9GB and 3-5× longer to ingest.
+- Contact resolution isn't implemented — your results will surface raw phone numbers and email addresses, not names.
 
-If you use `--contact` for iMessage ingestion, only 1:1 chats with that handle are added during that ingest run. If you use `--participants`, only chats whose remote participant set exactly matches the provided handles are added. Existing chunks already stored in the vector DB are not deleted, so use a fresh `VECTOR_DB` path or rebuild the DB if you want search limited strictly to one contact or one group thread.
+## License
 
-If you change `EMBED_MODEL` or `EMBED_DIMENSIONS`, rebuild or switch to a fresh `VECTOR_DB`. Retrieval only works when stored chunk embeddings and query embeddings were generated with the same embedding configuration.
-
-## Tech stack
-
-Python, FastAPI, HTMX, Jinja2, SQLite, numpy, Ollama, Gemma 3 4B, qwen3-embedding:8b
+MIT — see [LICENSE](LICENSE).
