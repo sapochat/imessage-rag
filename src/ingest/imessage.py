@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Iterable
 
-from src.config import APPLE_EPOCH_OFFSET, IMESSAGE_DB
+from imessage_rag.config import APPLE_EPOCH_OFFSET, IMESSAGE_DB
 
 BATCH_SIZE = 500
 

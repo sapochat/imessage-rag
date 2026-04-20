@@ -5,9 +5,9 @@ import requests as http_requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from src import settings
-from src.config import OLLAMA_URL
-from src.web.app import templates
+from imessage_rag import settings
+from imessage_rag.config import OLLAMA_URL
+from imessage_rag.web.app import templates
 
 router = APIRouter()
 

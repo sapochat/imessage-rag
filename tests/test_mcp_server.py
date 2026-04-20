@@ -4,7 +4,7 @@ import json
 from io import StringIO
 from unittest.mock import patch
 
-from src import mcp_server
+from imessage_rag import mcp_server
 
 
 class TestHandleRequest:
@@ -22,7 +22,7 @@ class TestHandleRequest:
         names = {tool["name"] for tool in result["tools"]}
         assert names == {"search_messages", "get_chunk", "get_stats"}
 
-    @patch("src.mcp_server._search_messages")
+    @patch("imessage_rag.mcp_server._search_messages")
     def test_tools_call_dispatches(self, mock_search):
         mock_search.return_value = {"content": [], "structuredContent": {"results": []}}
         result = mcp_server._handle_request(

@@ -1,6 +1,6 @@
 """Tests for embedding text cleaning logic."""
 
-from src.embed import _FALLBACK_CHAR_LIMITS, _MAX_CHARS, _candidate_prompts, _clean
+from imessage_rag.embed import _FALLBACK_CHAR_LIMITS, _MAX_CHARS, _candidate_prompts, _clean
 
 
 class TestClean:

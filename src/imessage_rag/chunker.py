@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Generator, Iterable
 
-from src.config import CHUNK_WINDOW_HOURS
+from imessage_rag.config import CHUNK_WINDOW_HOURS
 
 if TYPE_CHECKING:
-    from src.ingest.email import RawEmail
-    from src.ingest.imessage import RawMessage
+    from imessage_rag.ingest.email import RawEmail
+    from imessage_rag.ingest.imessage import RawMessage
 
 
 @dataclass

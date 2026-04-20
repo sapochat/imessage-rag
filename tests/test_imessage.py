@@ -3,8 +3,8 @@
 import sqlite3
 from datetime import datetime, timezone
 
-from src.config import APPLE_EPOCH_OFFSET
-from src.ingest.imessage import (
+from imessage_rag.config import APPLE_EPOCH_OFFSET
+from imessage_rag.ingest.imessage import (
     RawMessage,
     apple_ts_to_datetime,
     datetime_to_apple_ts,

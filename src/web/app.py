@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.config import AUTH_TOKEN_PATH
+from imessage_rag.config import AUTH_TOKEN_PATH
 
 _WEB_DIR = Path(__file__).resolve().parent
 
@@ -88,10 +88,10 @@ def create_app() -> FastAPI:
         name="static",
     )
 
-    from src.web.routes.query import router as query_router
-    from src.web.routes.ingest import router as ingest_router
-    from src.web.routes.status import router as status_router
-    from src.web.routes.settings import router as settings_router
+    from imessage_rag.web.routes.query import router as query_router
+    from imessage_rag.web.routes.ingest import router as ingest_router
+    from imessage_rag.web.routes.status import router as status_router
+    from imessage_rag.web.routes.settings import router as settings_router
 
     app.include_router(query_router)
     app.include_router(ingest_router)

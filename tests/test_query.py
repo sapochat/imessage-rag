@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
-from src.query import _build_prompt, _format_context, reformulate_query
+from imessage_rag.query import _build_prompt, _format_context, reformulate_query
 
 
 class TestFormatContext:
@@ -67,7 +67,7 @@ class TestReformulateQuery:
     def test_no_history_returns_original(self):
         assert reformulate_query("What time?", []) == "What time?"
 
-    @patch("src.query.generate_once")
+    @patch("imessage_rag.query.generate_once")
     def test_with_history_calls_llm(self, mock_gen):
         mock_gen.return_value = "What time did Alice suggest for dinner?"
         history = [
@@ -78,14 +78,14 @@ class TestReformulateQuery:
         assert result == "What time did Alice suggest for dinner?"
         mock_gen.assert_called_once()
 
-    @patch("src.query.generate_once")
+    @patch("imessage_rag.query.generate_once")
     def test_llm_failure_returns_original(self, mock_gen):
         mock_gen.side_effect = Exception("connection refused")
         history = [{"role": "user", "content": "prior"}]
         result = reformulate_query("follow up", history)
         assert result == "follow up"
 
-    @patch("src.query.generate_once")
+    @patch("imessage_rag.query.generate_once")
     def test_empty_llm_response_returns_original(self, mock_gen):
         mock_gen.return_value = ""
         history = [{"role": "user", "content": "prior"}]

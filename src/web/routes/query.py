@@ -6,9 +6,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.query import retrieve, stream_answer, stream_answer_chat
-from src.vectordb import fetch_by_ids
-from src.web.app import templates
+from imessage_rag.query import retrieve, stream_answer, stream_answer_chat
+from imessage_rag.vectordb import fetch_by_ids
+from imessage_rag.web.app import templates
 
 router = APIRouter()
 

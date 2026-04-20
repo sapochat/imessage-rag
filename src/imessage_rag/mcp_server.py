@@ -62,8 +62,8 @@ def _search_messages(arguments: dict[str, Any]) -> dict[str, Any]:
     if source not in (None, "imessage", "email"):
         raise JsonRpcError(-32602, "'source' must be one of: imessage, email")
 
-    from src.embed import get_embedding
-    from src.vectordb import search
+    from imessage_rag.embed import get_embedding
+    from imessage_rag.vectordb import search
 
     query_embedding = get_embedding(query)
     results = search(query_embedding, top_k=top_k, source=source)
@@ -100,7 +100,7 @@ def _get_chunk(arguments: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise JsonRpcError(-32602, "get_chunk requires integer 'chunk_id'") from exc
 
-    from src.vectordb import fetch_by_ids
+    from imessage_rag.vectordb import fetch_by_ids
 
     results = fetch_by_ids([chunk_id])
     if not results:
@@ -130,7 +130,7 @@ def _get_chunk(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_stats(_: dict[str, Any]) -> dict[str, Any]:
-    from src.vectordb import get_stats
+    from imessage_rag.vectordb import get_stats
 
     stats = get_stats()
     text = (

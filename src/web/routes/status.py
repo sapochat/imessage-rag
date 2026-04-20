@@ -4,10 +4,10 @@ import requests as http_requests
 
 from fastapi import APIRouter, Request
 
-from src import settings
-from src.config import EMBED_MODEL, OLLAMA_URL
-from src.vectordb import get_stats
-from src.web.app import templates
+from imessage_rag import settings
+from imessage_rag.config import EMBED_MODEL, OLLAMA_URL
+from imessage_rag.vectordb import get_stats
+from imessage_rag.web.app import templates
 
 router = APIRouter()
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from src.vectordb import (
+from imessage_rag.vectordb import (
     EMBEDDING_DIM,
     _ensure_db,
     fetch_by_ids,
