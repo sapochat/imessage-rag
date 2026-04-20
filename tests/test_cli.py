@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cli import _print_kv, parse_participants, parse_since
+from src.cli import _print_kv, parse_participants, parse_since
 
 
 class TestParseSince:
