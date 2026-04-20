@@ -18,8 +18,27 @@ async def ingest_page(request: Request):
 
 
 @router.post("/ingest/start")
-async def ingest_start(request: Request, source: str = Form(...), since: str = Form("")):
+async def ingest_start(
+    request: Request,
+    source: str = Form(...),
+    since: str = Form(""),
+    contact: str = Form(""),
+    participants: str = Form(""),
+):
     since_val = since.strip() or None
+    contact_val = contact.strip() or None
+    participants_val = participants.strip() or None
+
+    if contact_val and participants_val:
+        tasks = task_manager.all_tasks()
+        return templates.TemplateResponse(
+            "ingest.html",
+            {
+                "request": request,
+                "tasks": tasks,
+                "error": "Use either contact or group participants, not both.",
+            },
+        )
 
     if task_manager.has_running(source):
         tasks = task_manager.all_tasks()
@@ -28,7 +47,7 @@ async def ingest_start(request: Request, source: str = Form(...), since: str = F
             {"request": request, "tasks": tasks, "error": f"An ingest for '{source}' is already running."},
         )
 
-    task = task_manager.start_ingest(source, since_val)
+    task = task_manager.start_ingest(source, since_val, contact_val, participants_val)
     tasks = task_manager.all_tasks()
     return templates.TemplateResponse(
         "ingest.html", {"request": request, "tasks": tasks}

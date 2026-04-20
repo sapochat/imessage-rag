@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "personal-rag"
 version = "0.1.0"
@@ -18,4 +22,13 @@ dependencies = [
 test = ["pytest>=8.0,<9"]
 
 [project.scripts]
-personal-rag = "cli:main"
+personal-rag = "src.cli:main"
+personal-rag-mcp = "src.mcp_server:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+py-modules = ["cli"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

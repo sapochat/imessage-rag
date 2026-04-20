@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cli import parse_since
+from cli import _print_kv, parse_participants, parse_since
 
 
 class TestParseSince:
@@ -25,3 +25,20 @@ class TestParseSince:
     def test_invalid_number_raises(self):
         with pytest.raises(ValueError):
             parse_since("abcd")
+
+
+class TestParseParticipants:
+    def test_comma_separated(self):
+        assert parse_participants("+15551234567, +15557654321") == [
+            "+15551234567",
+            "+15557654321",
+        ]
+
+    def test_ignores_empty_values(self):
+        assert parse_participants("a,, b ,") == ["a", "b"]
+
+
+class TestPrintKv:
+    def test_alignment_format(self, capsys):
+        _print_kv("Vector DB", "/tmp/test.db")
+        assert "Vector DB" in capsys.readouterr().out

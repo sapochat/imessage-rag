@@ -16,6 +16,9 @@ def _msg(contact, minutes_offset, text="Hi", is_from_me=False):
         date=base + timedelta(minutes=minutes_offset),
         is_from_me=is_from_me,
         contact=contact,
+        sender=contact,
+        conversation_id=f"thread:{contact}",
+        participants=(contact,),
     )
 
 
@@ -97,6 +100,59 @@ class TestChunkImessages:
         assert len(chunks) == 2
         assert chunks[0].contact == "alice"
         assert chunks[1].contact == "bob"
+
+    def test_group_chat_uses_sender_not_group_label(self):
+        msgs = [
+            RawMessage(
+                rowid=1,
+                text="First",
+                date=datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc),
+                is_from_me=False,
+                contact="alice, bob",
+                sender="alice",
+                conversation_id="chat:1",
+                participants=("alice", "bob"),
+            ),
+            RawMessage(
+                rowid=2,
+                text="Reply",
+                date=datetime(2024, 1, 15, 12, 1, tzinfo=timezone.utc),
+                is_from_me=False,
+                contact="alice, bob",
+                sender="bob",
+                conversation_id="chat:1",
+                participants=("alice", "bob"),
+            ),
+        ]
+        chunks = list(chunk_imessages(msgs))
+        assert "alice: First" in chunks[0].text
+        assert "bob: Reply" in chunks[0].text
+
+    def test_same_label_different_thread_ids_do_not_merge(self):
+        msgs = [
+            RawMessage(
+                rowid=1,
+                text="Thread one",
+                date=datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc),
+                is_from_me=False,
+                contact="alice, bob",
+                sender="alice",
+                conversation_id="chat:1",
+                participants=("alice", "bob"),
+            ),
+            RawMessage(
+                rowid=2,
+                text="Thread two",
+                date=datetime(2024, 1, 15, 12, 5, tzinfo=timezone.utc),
+                is_from_me=False,
+                contact="alice, bob",
+                sender="alice",
+                conversation_id="chat:2",
+                participants=("alice", "bob"),
+            ),
+        ]
+        chunks = list(chunk_imessages(msgs))
+        assert len(chunks) == 2
 
 
 class TestChunkEmails:

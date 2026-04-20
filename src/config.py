@@ -3,10 +3,14 @@ import socket
 from pathlib import Path
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional convenience dependency
+    load_dotenv = None
 
-# Load .env from project root
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# Load .env from project root when python-dotenv is available.
+if load_dotenv is not None:
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _expand(path: str) -> Path:
@@ -50,7 +54,9 @@ MAIL_DIR = _expand(os.getenv("MAIL_DIR", "~/Library/Mail/V10"))
 
 # Ollama (always used for embeddings)
 OLLAMA_URL = _validate_localhost(os.getenv("OLLAMA_URL", "http://localhost:11434"))
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:8b")
+_embed_dimensions = os.getenv("EMBED_DIMENSIONS", "").strip()
+EMBED_DIMENSIONS = int(_embed_dimensions) if _embed_dimensions else None
 GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma3:4b")
 
 # Generation backend — "ollama" (default) or "openai" (e.g. maple.ai proxy)

@@ -21,6 +21,8 @@ class IngestTask:
     id: str
     source: str
     since: str | None
+    contact: str | None = None
+    participants: str | None = None
     status: TaskStatus = TaskStatus.PENDING
     chunks_processed: int = 0
     messages_processed: int = 0
@@ -39,6 +41,8 @@ class IngestTask:
                 "id": self.id,
                 "source": self.source,
                 "since": self.since,
+                "contact": self.contact,
+                "participants": self.participants,
                 "status": self.status.value,
                 "chunks_processed": self.chunks_processed,
                 "messages_processed": self.messages_processed,
@@ -65,8 +69,20 @@ class TaskManager:
             for t in self._tasks.values()
         )
 
-    def start_ingest(self, source: str, since: str | None) -> IngestTask:
-        task = IngestTask(id=uuid.uuid4().hex[:8], source=source, since=since)
+    def start_ingest(
+        self,
+        source: str,
+        since: str | None,
+        contact: str | None = None,
+        participants: str | None = None,
+    ) -> IngestTask:
+        task = IngestTask(
+            id=uuid.uuid4().hex[:8],
+            source=source,
+            since=since,
+            contact=contact,
+            participants=participants,
+        )
         with self._lock:
             self._tasks[task.id] = task
 
@@ -93,7 +109,15 @@ class TaskManager:
                 since_dt = parse_since(task.since)
 
             if task.source == "imessage":
-                messages = extract_messages(since=since_dt)
+                participant_list = None
+                if task.participants:
+                    from cli import parse_participants
+                    participant_list = parse_participants(task.participants)
+                messages = extract_messages(
+                    since=since_dt,
+                    contact=task.contact,
+                    participants=participant_list,
+                )
                 chunks = chunk_imessages(messages)
             elif task.source == "email":
                 emails = extract_emails(since=since_dt)

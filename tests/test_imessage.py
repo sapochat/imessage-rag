@@ -78,6 +78,23 @@ class TestExtractTextFromAttributedBody:
 
 
 class TestExtractMessages:
+    @staticmethod
+    def _insert_chat(conn, chat_id, handle_ids, message_ids):
+        conn.execute(
+            "INSERT INTO chat (ROWID, guid, display_name, room_name) VALUES (?, ?, NULL, NULL)",
+            (chat_id, f"chat-{chat_id}"),
+        )
+        for handle_id in handle_ids:
+            conn.execute(
+                "INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?, ?)",
+                (chat_id, handle_id),
+            )
+        for message_id in message_ids:
+            conn.execute(
+                "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)",
+                (chat_id, message_id),
+            )
+
     def test_empty_db(self, imessage_db):
         """No messages in the DB yields nothing."""
         msgs = list(extract_messages(db_path=imessage_db))
@@ -151,6 +168,123 @@ class TestExtractMessages:
 
         msgs = list(extract_messages(db_path=imessage_db))
         assert msgs == []
+
+    def test_contact_filter_exact_match(self, imessage_db):
+        """A contact filter limits extraction to one handle."""
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+15557654321')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'keep me', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (2, 'skip me', ?, 0, 2)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.commit()
+        conn.close()
+
+        msgs = list(extract_messages(contact="+15551234567", db_path=imessage_db))
+        assert len(msgs) == 1
+        assert msgs[0].text == "keep me"
+        assert msgs[0].contact == "+15551234567"
+
+    def test_contact_filter_matches_normalized_phone(self, imessage_db):
+        """Phone-style filters match handles stored with punctuation."""
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+1 (555) 123-4567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+1 (555) 999-0000')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'normalized', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (2, 'other', ?, 0, 2)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.commit()
+        conn.close()
+
+        msgs = list(extract_messages(contact="15551234567", db_path=imessage_db))
+        assert len(msgs) == 1
+        assert msgs[0].text == "normalized"
+
+    def test_participants_filter_matches_exact_group(self, imessage_db):
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+15557654321')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (3, '+15559876543')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'from alice', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (2, 'from bob', ?, 0, 2)",
+            (datetime_to_apple_ts(dt),),
+        )
+        self._insert_chat(conn, 10, [1, 2], [1, 2])
+        conn.commit()
+        conn.close()
+
+        msgs = list(
+            extract_messages(
+                participants=["+15551234567", "+15557654321"],
+                db_path=imessage_db,
+            )
+        )
+        assert len(msgs) == 2
+        assert msgs[0].contact == "+15551234567, +15557654321"
+        assert msgs[0].participants == ("+15551234567", "+15557654321")
+        assert msgs[0].sender == "+15551234567"
+        assert msgs[1].sender == "+15557654321"
+
+    def test_participants_filter_rejects_subset(self, imessage_db):
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+15557654321')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (3, '+15559876543')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'group', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        self._insert_chat(conn, 10, [1, 2, 3], [1])
+        conn.commit()
+        conn.close()
+
+        msgs = list(
+            extract_messages(
+                participants=["+15551234567", "+15557654321"],
+                db_path=imessage_db,
+            )
+        )
+        assert msgs == []
+
+    def test_contact_filter_matches_direct_chat_exactly(self, imessage_db):
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+15557654321')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'direct', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (2, 'group', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        self._insert_chat(conn, 10, [1], [1])
+        self._insert_chat(conn, 11, [1, 2], [2])
+        conn.commit()
+        conn.close()
+
+        msgs = list(extract_messages(contact="+15551234567", db_path=imessage_db))
+        assert len(msgs) == 1
+        assert msgs[0].text == "direct"
 
     def test_unknown_contact_for_missing_handle(self, imessage_db):
         """Messages with no handle get contact='unknown'."""
