@@ -19,7 +19,6 @@ class TaskStatus(str, Enum):
 @dataclass
 class IngestTask:
     id: str
-    source: str
     since: str | None
     contact: str | None = None
     participants: str | None = None
@@ -39,7 +38,6 @@ class IngestTask:
         with self._lock:
             return {
                 "id": self.id,
-                "source": self.source,
                 "since": self.since,
                 "contact": self.contact,
                 "participants": self.participants,
@@ -63,22 +61,19 @@ class TaskManager:
     def all_tasks(self) -> list[IngestTask]:
         return list(self._tasks.values())
 
-    def has_running(self, source: str) -> bool:
+    def has_running(self) -> bool:
         return any(
-            t.source == source and t.status == TaskStatus.RUNNING
-            for t in self._tasks.values()
+            t.status == TaskStatus.RUNNING for t in self._tasks.values()
         )
 
     def start_ingest(
         self,
-        source: str,
         since: str | None,
         contact: str | None = None,
         participants: str | None = None,
     ) -> IngestTask:
         task = IngestTask(
             id=uuid.uuid4().hex[:8],
-            source=source,
             since=since,
             contact=contact,
             participants=participants,
@@ -93,40 +88,25 @@ class TaskManager:
         return task
 
     def _run_ingest(self, task: IngestTask) -> None:
-        from imessage_rag.chunker import chunk_emails, chunk_imessages
+        from imessage_rag.chunker import chunk_imessages
+        from imessage_rag.cli import parse_participants, parse_since
         from imessage_rag.embed import get_embedding
-        from imessage_rag.ingest.email import extract_emails
-        from imessage_rag.ingest.imessage import extract_messages
+        from imessage_rag.ingest import extract_messages
         from imessage_rag.vectordb import insert_chunk
 
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(tz=timezone.utc)
 
         try:
-            since_dt = None
-            if task.since:
-                from cli import parse_since
-                since_dt = parse_since(task.since)
+            since_dt = parse_since(task.since) if task.since else None
+            participant_list = parse_participants(task.participants) if task.participants else None
 
-            if task.source == "imessage":
-                participant_list = None
-                if task.participants:
-                    from cli import parse_participants
-                    participant_list = parse_participants(task.participants)
-                messages = extract_messages(
-                    since=since_dt,
-                    contact=task.contact,
-                    participants=participant_list,
-                )
-                chunks = chunk_imessages(messages)
-            elif task.source == "email":
-                emails = extract_emails(since=since_dt)
-                chunks = chunk_emails(emails)
-            else:
-                task.status = TaskStatus.FAILED
-                task.error = f"Unknown source '{task.source}'"
-                task.finished_at = datetime.now(tz=timezone.utc)
-                return
+            messages = extract_messages(
+                since=since_dt,
+                contact=task.contact,
+                participants=participant_list,
+            )
+            chunks = chunk_imessages(messages)
 
             for chunk in chunks:
                 if task.cancel_requested:
@@ -154,5 +134,4 @@ class TaskManager:
             task.finished_at = datetime.now(tz=timezone.utc)
 
 
-# Singleton instance
 task_manager = TaskManager()

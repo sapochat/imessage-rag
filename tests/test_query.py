@@ -9,7 +9,6 @@ from imessage_rag.query import _build_prompt, _format_context, reformulate_query
 class TestFormatContext:
     def test_single_chunk(self):
         results = [{
-            "source": "imessage",
             "contact": "alice",
             "start_time": datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc).timestamp(),
             "end_time": datetime(2024, 1, 15, 13, 0, tzinfo=timezone.utc).timestamp(),
@@ -19,7 +18,6 @@ class TestFormatContext:
         }]
         ctx = _format_context(results)
         assert "[Chunk 1" in ctx
-        assert "imessage" in ctx
         assert "alice" in ctx
         assert "0.950" in ctx
         assert "Hello there" in ctx
@@ -27,7 +25,6 @@ class TestFormatContext:
     def test_multiple_chunks_separated(self):
         results = [
             {
-                "source": "imessage",
                 "contact": "alice",
                 "start_time": 1705320000.0,
                 "end_time": 1705320000.0,
@@ -36,8 +33,7 @@ class TestFormatContext:
                 "text": "First",
             },
             {
-                "source": "email",
-                "contact": "bob@example.com",
+                "contact": "bob",
                 "start_time": 1705320000.0,
                 "end_time": 1705320000.0,
                 "message_count": 1,
@@ -48,7 +44,7 @@ class TestFormatContext:
         ctx = _format_context(results)
         assert "[Chunk 1" in ctx
         assert "[Chunk 2" in ctx
-        assert "---" in ctx  # separator
+        assert "---" in ctx
 
 
 class TestBuildPrompt:

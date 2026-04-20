@@ -7,11 +7,22 @@ from imessage_rag.generate import generate_once, stream_chat
 from imessage_rag.embed import get_embedding
 from imessage_rag.vectordb import fetch_by_ids, search
 
+_SYSTEM_PROMPT = (
+    "You are a search assistant for the user's iMessage history. "
+    "Your ONLY job is to find and quote relevant parts from the excerpts below.\n\n"
+    "RULES:\n"
+    "- ONLY use information from the excerpts. NEVER use your own knowledge.\n"
+    "- Quote or paraphrase the actual messages. Include who said it and when.\n"
+    "- If the excerpts contain nothing relevant, say \"Nothing found in your "
+    "messages about this.\" Do NOT explain the topic yourself.\n"
+    "- Do NOT define terms, give background info, or answer from general knowledge."
+)
 
-def retrieve(query: str, top_k: int = 5, source: str | None = None) -> list[dict]:
+
+def retrieve(query: str, top_k: int = 5) -> list[dict]:
     """Embed the query and return the top-k matching chunks."""
     query_embedding = get_embedding(query)
-    return search(query_embedding, top_k=top_k, source=source)
+    return search(query_embedding, top_k=top_k)
 
 
 def _format_context(results: list[dict]) -> str:
@@ -21,7 +32,7 @@ def _format_context(results: list[dict]) -> str:
         start = datetime.fromtimestamp(r["start_time"], tz=timezone.utc)
         end = datetime.fromtimestamp(r["end_time"], tz=timezone.utc)
         header = (
-            f"[Chunk {i} | {r['source']} | {r['contact']} | "
+            f"[Chunk {i} | {r['contact']} | "
             f"{start.strftime('%Y-%m-%d %H:%M')}–{end.strftime('%H:%M')} | "
             f"{r['message_count']} messages | similarity: {r['similarity']:.3f}]"
         )
@@ -31,14 +42,7 @@ def _format_context(results: list[dict]) -> str:
 
 def _build_prompt(query: str, context: str) -> str:
     return (
-        "You are a search assistant for the user's personal messages and emails. "
-        "Your ONLY job is to find and quote relevant parts from the excerpts below.\n\n"
-        "RULES:\n"
-        "- ONLY use information from the excerpts. NEVER use your own knowledge.\n"
-        "- Quote or paraphrase the actual messages. Include who said it and when.\n"
-        "- If the excerpts contain nothing relevant, say \"Nothing found in your "
-        "messages about this.\" Do NOT explain the topic yourself.\n"
-        "- Do NOT define terms, give background info, or answer from general knowledge.\n\n"
+        f"{_SYSTEM_PROMPT}\n\n"
         f"--- CONVERSATION EXCERPTS ---\n{context}\n"
         f"--- END EXCERPTS ---\n\n"
         f"Question: {query}\n\n"
@@ -46,8 +50,24 @@ def _build_prompt(query: str, context: str) -> str:
     )
 
 
+def _safe_result(r: dict, extras: dict | None = None) -> dict:
+    base = {
+        "id": r["id"],
+        "contact": r["contact"],
+        "start_time": r["start_time"],
+        "end_time": r["end_time"],
+        "message_count": r["message_count"],
+        "similarity": round(r["similarity"], 3),
+        "text": r["text"][:300],
+        "metadata": r.get("metadata", {}),
+    }
+    if extras:
+        base.update(extras)
+    return base
+
+
 def stream_answer(
-    query: str, top_k: int = 5, source: str | None = None
+    query: str, top_k: int = 5,
 ) -> Generator[dict, None, None]:
     """Retrieve chunks and stream an answer as event dicts.
 
@@ -58,7 +78,7 @@ def stream_answer(
       {"type": "error",   "data": "error message"}
     """
     try:
-        results = retrieve(query, top_k=top_k, source=source)
+        results = retrieve(query, top_k=top_k)
     except Exception as e:
         yield {"type": "error", "data": f"Retrieval failed: {e}"}
         return
@@ -68,21 +88,7 @@ def stream_answer(
         yield {"type": "error", "data": "No matching chunks found. Have you run 'ingest' yet?"}
         return
 
-    # Strip embedding blobs before sending to client
-    safe_results = []
-    for r in results:
-        safe_results.append({
-            "id": r["id"],
-            "contact": r["contact"],
-            "source": r["source"],
-            "start_time": r["start_time"],
-            "end_time": r["end_time"],
-            "message_count": r["message_count"],
-            "similarity": round(r["similarity"], 3),
-            "text": r["text"][:300],
-            "metadata": r.get("metadata", {}),
-        })
-    yield {"type": "sources", "data": safe_results}
+    yield {"type": "sources", "data": [_safe_result(r) for r in results]}
 
     context = _format_context(results)
     prompt = _build_prompt(query, context)
@@ -101,18 +107,11 @@ def stream_answer(
 def reformulate_query(
     user_msg: str, history: list[dict],
 ) -> str:
-    """Rewrite a follow-up question as a standalone search query.
-
-    Uses the configured generation backend to combine conversation context
-    with the new message so that vector-search retrieval works on follow-ups
-    like "tell me more about that".
-    If there's no history, returns the original message unchanged.
-    """
+    """Rewrite a follow-up question as a standalone search query."""
     if not history:
         return user_msg
 
-    # Build a compact summary of the last few turns (keep token budget small)
-    recent = history[-6:]  # last 3 exchanges max
+    recent = history[-6:]
     convo = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:200]}"
         for m in recent
@@ -138,33 +137,19 @@ def stream_answer_chat(
     user_msg: str,
     history: list[dict],
     top_k: int = 5,
-    source: str | None = None,
     prior_chunk_ids: list[int] | None = None,
 ) -> Generator[dict, None, None]:
-    """Multi-turn chat: reformulate → retrieve → merge prior chunks → stream.
-
-    Args:
-        user_msg: The latest user message.
-        history: Prior turns as [{"role": "user"|"assistant", "content": "..."}].
-        top_k: Number of chunks to retrieve.
-        source: Optional source filter.
-        prior_chunk_ids: Chunk IDs from earlier turns to carry forward.
-
-    Yields the same event dict format as stream_answer().
-    """
+    """Multi-turn chat: reformulate → retrieve → merge prior chunks → stream."""
     MAX_CONTEXT_CHUNKS = 20
 
-    # Step 1 — reformulate follow-up into standalone retrieval query
     search_query = reformulate_query(user_msg, history)
 
-    # Step 2 — retrieve new chunks for this turn
     try:
-        new_results = retrieve(search_query, top_k=top_k, source=source)
+        new_results = retrieve(search_query, top_k=top_k)
     except Exception as e:
         yield {"type": "error", "data": f"Retrieval failed: {e}"}
         return
 
-    # Step 3 — merge with prior chunks (deduplicate by ID)
     new_ids = {r["id"] for r in new_results}
     prior_ids_to_fetch = [
         cid for cid in (prior_chunk_ids or []) if cid not in new_ids
@@ -175,57 +160,29 @@ def stream_answer_chat(
         try:
             prior_results = fetch_by_ids(prior_ids_to_fetch)
         except Exception:
-            pass  # non-fatal — we still have new results
+            pass
 
-    # New results first (highest relevance), then prior context
-    # Cap total to keep within reasonable token budget
-    all_results = new_results + prior_results
-    all_results = all_results[:MAX_CONTEXT_CHUNKS]
+    all_results = (new_results + prior_results)[:MAX_CONTEXT_CHUNKS]
 
     if not all_results:
         yield {"type": "sources", "data": []}
         yield {"type": "error", "data": "No matching chunks found. Have you run 'ingest' yet?"}
         return
 
-    # Send source info to client (includes IDs so browser can accumulate)
-    safe_results = []
-    for r in all_results:
-        safe_results.append({
-            "id": r["id"],
-            "contact": r["contact"],
-            "source": r["source"],
-            "start_time": r["start_time"],
-            "end_time": r["end_time"],
-            "message_count": r["message_count"],
-            "similarity": round(r["similarity"], 3),
-            "text": r["text"][:300],
-            "metadata": r.get("metadata", {}),
-            "is_new": r["id"] in new_ids,
-        })
-    yield {"type": "sources", "data": safe_results}
+    yield {
+        "type": "sources",
+        "data": [_safe_result(r, {"is_new": r["id"] in new_ids}) for r in all_results],
+    }
 
-    # Step 4 — build messages array for chat completion
     context = _format_context(all_results)
-
     system_msg = (
-        "You are a search assistant for the user's personal messages and emails. "
-        "Your ONLY job is to find and quote relevant parts from the excerpts below.\n\n"
-        "RULES:\n"
-        "- ONLY use information from the excerpts. NEVER use your own knowledge.\n"
-        "- Quote or paraphrase the actual messages. Include who said it and when.\n"
-        "- If the excerpts contain nothing relevant, say \"Nothing found in your "
-        "messages about this.\" Do NOT explain the topic yourself.\n"
-        "- Do NOT define terms, give background info, or answer from general knowledge.\n\n"
+        f"{_SYSTEM_PROMPT}\n\n"
         f"--- CONVERSATION EXCERPTS ---\n{context}\n"
         f"--- END EXCERPTS ---"
     )
-
     messages = [{"role": "system", "content": system_msg}]
-
-    # Include recent history so the model has conversational context
-    for turn in history[-8:]:  # last 4 exchanges max to stay within context
+    for turn in history[-8:]:
         messages.append({"role": turn["role"], "content": turn["content"]})
-
     messages.append({"role": "user", "content": user_msg})
 
     try:
@@ -238,9 +195,9 @@ def stream_answer_chat(
     yield {"type": "done", "data": ""}
 
 
-def generate_answer(query: str, top_k: int = 5, source: str | None = None) -> None:
+def generate_answer(query: str, top_k: int = 5) -> None:
     """Retrieve relevant chunks and stream an LLM-generated answer to stdout."""
-    for event in stream_answer(query, top_k=top_k, source=source):
+    for event in stream_answer(query, top_k=top_k):
         if event["type"] == "sources":
             if not event["data"]:
                 print("No matching chunks found. Have you run 'ingest' yet?")
@@ -254,4 +211,4 @@ def generate_answer(query: str, top_k: int = 5, source: str | None = None) -> No
             print(event["data"])
             return
         elif event["type"] == "done":
-            print()  # final newline
+            print()

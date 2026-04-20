@@ -8,9 +8,9 @@ try:
 except ImportError:  # pragma: no cover - optional convenience dependency
     load_dotenv = None
 
-# Load .env from project root when python-dotenv is available.
+# Load .env from repo root (two parents up from this file: src/imessage_rag/).
 if load_dotenv is not None:
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 def _expand(path: str) -> Path:
@@ -28,7 +28,6 @@ def _validate_localhost(url: str) -> str:
     if hostname in ("localhost", "127.0.0.1", "::1"):
         return url
 
-    # Resolve hostname to check if it points to a loopback address
     try:
         addr = socket.gethostbyname(hostname)
     except socket.gaierror:
@@ -49,31 +48,28 @@ def _validate_localhost(url: str) -> str:
 # iMessage
 IMESSAGE_DB = _expand(os.getenv("IMESSAGE_DB", "~/Library/Messages/chat.db"))
 
-# Apple Mail
-MAIL_DIR = _expand(os.getenv("MAIL_DIR", "~/Library/Mail/V10"))
-
 # Ollama (always used for embeddings)
 OLLAMA_URL = _validate_localhost(os.getenv("OLLAMA_URL", "http://localhost:11434"))
-EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:8b")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 _embed_dimensions = os.getenv("EMBED_DIMENSIONS", "").strip()
-EMBED_DIMENSIONS = int(_embed_dimensions) if _embed_dimensions else None
+EMBED_DIMENSIONS = int(_embed_dimensions) if _embed_dimensions else 768
 GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma3:4b")
 
-# Generation backend — "ollama" (default) or "openai" (e.g. maple.ai proxy)
+# Generation backend — "ollama" (default) or "openai" (local OpenAI-compatible proxy)
 GENERATION_BACKEND = os.getenv("GENERATION_BACKEND", "ollama").lower()
 _gen_api_url = os.getenv("GENERATION_API_URL", "")
 GENERATION_API_URL = _validate_localhost(_gen_api_url) if _gen_api_url else ""
 GENERATION_API_KEY = os.getenv("GENERATION_API_KEY", "")
 
 # Vector DB
-VECTOR_DB = _expand(os.getenv("VECTOR_DB", "~/.personal-rag/vectors.db"))
+VECTOR_DB = _expand(os.getenv("VECTOR_DB", "~/.imessage-rag/vectors.db"))
 
 # Chunking
 CHUNK_WINDOW_HOURS = int(os.getenv("CHUNK_WINDOW_HOURS", "4"))
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "10"))
 
 # Auth
-AUTH_TOKEN_PATH = _expand("~/.personal-rag/auth_token")
+AUTH_TOKEN_PATH = _expand("~/.imessage-rag/auth_token")
 
 # Apple Core Data epoch offset (seconds between 1970-01-01 and 2001-01-01)
 APPLE_EPOCH_OFFSET = 978307200

@@ -19,7 +19,6 @@ class ChatRequest(BaseModel):
     query: str
     history: list[dict] = []
     top_k: int = Field(default=5, ge=1, le=MAX_TOP_K)
-    source: str | None = None
     prior_chunk_ids: list[int] = []
 
 
@@ -29,14 +28,12 @@ async def query_page(request: Request):
 
 
 @router.get("/api/query/stream")
-async def query_stream(q: str, top_k: int = 5, source: str | None = None):
-    """SSE endpoint that streams answer tokens (single-shot, backwards compat)."""
+async def query_stream(q: str, top_k: int = 5):
+    """SSE endpoint that streams answer tokens (single-shot)."""
     top_k = max(1, min(top_k, MAX_TOP_K))
-    if source == "":
-        source = None
 
     def event_generator():
-        for event in stream_answer(q, top_k=top_k, source=source):
+        for event in stream_answer(q, top_k=top_k):
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"
 
@@ -50,11 +47,9 @@ async def query_stream(q: str, top_k: int = 5, source: str | None = None):
 @router.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest):
     """SSE endpoint for multi-turn chat with conversation history."""
-    source = req.source if req.source else None
-
     def event_generator():
         for event in stream_answer_chat(
-            req.query, req.history, top_k=req.top_k, source=source,
+            req.query, req.history, top_k=req.top_k,
             prior_chunk_ids=req.prior_chunk_ids,
         ):
             payload = json.dumps(event, default=str)
@@ -77,10 +72,8 @@ async def chunk_detail(chunk_id: int):
 
 
 @router.get("/api/query/retrieve")
-async def query_retrieve(q: str, top_k: int = 5, source: str | None = None):
+async def query_retrieve(q: str, top_k: int = 5):
     """JSON endpoint returning raw retrieved chunks."""
     top_k = max(1, min(top_k, MAX_TOP_K))
-    if source == "":
-        source = None
-    results = retrieve(q, top_k=top_k, source=source)
+    results = retrieve(q, top_k=top_k)
     return {"results": results}

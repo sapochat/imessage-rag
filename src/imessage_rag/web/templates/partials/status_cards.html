@@ -2,9 +2,6 @@
     <div class="card">
         <h3>Vector Database</h3>
         <p><strong>{{ stats.total_chunks }}</strong> chunks</p>
-        {% for source, count in stats.by_source.items() %}
-        <p style="color:var(--muted);font-size:.85rem">{{ source }}: {{ count }}</p>
-        {% endfor %}
         <p style="margin-top:.5rem;font-size:.85rem;color:var(--muted)">
             Size: <span class="mono">{{ stats.db_size_mb }} MB</span>
         </p>

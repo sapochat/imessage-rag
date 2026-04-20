@@ -1,4 +1,4 @@
-"""Persistent settings store — generation config saved to ~/.personal-rag/settings.json.
+"""Persistent settings store — generation config saved to ~/.imessage-rag/settings.json.
 
 Env vars in .env serve as fallback defaults. Saved UI settings take precedence.
 Only generation-related settings are mutable here; embedding/DB/chunking stay in .env.
@@ -16,7 +16,7 @@ from imessage_rag.config import (
     _validate_localhost,
 )
 
-_SETTINGS_PATH = Path(os.path.expanduser("~/.personal-rag/settings.json"))
+_SETTINGS_PATH = Path(os.path.expanduser("~/.imessage-rag/settings.json"))
 
 _cache: dict | None = None
 _cache_mtime: float = 0.0
