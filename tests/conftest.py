@@ -43,6 +43,26 @@ def imessage_db(tmp_path):
             handle_id INTEGER
         )
     """)
+    conn.execute("""
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            guid TEXT,
+            display_name TEXT,
+            room_name TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE chat_message_join (
+            chat_id INTEGER,
+            message_id INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE chat_handle_join (
+            chat_id INTEGER,
+            handle_id INTEGER
+        )
+    """)
     conn.commit()
     conn.close()
     return db_path
@@ -51,6 +71,7 @@ def imessage_db(tmp_path):
 def make_chunk(
     source="imessage",
     contact="test-contact",
+    thread_key=None,
     start_time=None,
     end_time=None,
     text="Hello, this is a test message.",
@@ -62,6 +83,7 @@ def make_chunk(
     return Chunk(
         source=source,
         contact=contact,
+        thread_key=thread_key or contact,
         start_time=start_time or now,
         end_time=end_time or now,
         text=text,

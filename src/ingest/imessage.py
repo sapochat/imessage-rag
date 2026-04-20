@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Iterable
 
 from src.config import APPLE_EPOCH_OFFSET, IMESSAGE_DB
 
@@ -19,7 +19,79 @@ class RawMessage:
     text: str
     date: datetime
     is_from_me: bool
-    contact: str  # phone number or email
+    contact: str  # conversation label: contact or group participant list
+    sender: str = "unknown"  # actual message sender for group chats
+    conversation_id: str = ""
+    participants: tuple[str, ...] = ()
+
+
+def _normalize_handle(value: str) -> str:
+    """Normalize phone numbers and emails for matching."""
+    cleaned = value.strip()
+    if "@" in cleaned:
+        return cleaned.casefold()
+    digits = "".join(ch for ch in cleaned if ch.isdigit())
+    return digits or cleaned.casefold()
+
+
+def _canonicalize_handles(values: Iterable[str]) -> tuple[str, ...]:
+    """Return a sorted, unique tuple of normalized handles."""
+    normalized = {_normalize_handle(value) for value in values if value and value.strip()}
+    return tuple(sorted(value for value in normalized if value))
+
+
+def _group_label(participants: tuple[str, ...], fallback: str) -> str:
+    """Format a user-facing label for a conversation."""
+    if not participants:
+        return fallback
+    if len(participants) == 1:
+        return participants[0]
+    return ", ".join(participants)
+
+
+def _load_chat_participants(conn: sqlite3.Connection) -> dict[int, tuple[str, ...]]:
+    """Map chat IDs to their participant handle list."""
+    rows = conn.execute(
+        """
+        SELECT ordered.chat_id, GROUP_CONCAT(ordered.handle_id, X'1F') AS participants_raw
+        FROM (
+            SELECT chj.chat_id AS chat_id, h.id AS handle_id
+            FROM chat_handle_join chj
+            JOIN handle h ON h.ROWID = chj.handle_id
+            ORDER BY chj.chat_id, h.id
+        ) ordered
+        GROUP BY ordered.chat_id
+        """
+    ).fetchall()
+    chat_index: dict[int, tuple[str, ...]] = {}
+    for row in rows:
+        raw = row["participants_raw"] or ""
+        chat_index[row["chat_id"]] = tuple(
+            value for value in raw.split("\x1f") if value
+        )
+    return chat_index
+
+
+def _build_handle_match_clause(column: str) -> str:
+    """Build a SQL clause that matches a handle as exact string or normalized phone."""
+    normalized = (
+        f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE({column}, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '')"
+    )
+    return f"({column} = ? OR LOWER({column}) = LOWER(?) OR {normalized} = ?)"
+
+
+def _parse_participants_arg(
+    contact: str | None,
+    participants: Iterable[str] | None,
+) -> tuple[str, ...] | None:
+    if contact and participants:
+        raise ValueError("Use either 'contact' or 'participants', not both.")
+    if contact:
+        return _canonicalize_handles([contact])
+    if participants:
+        normalized = _canonicalize_handles(participants)
+        return normalized or None
+    return None
 
 
 def apple_ts_to_datetime(apple_ns: int) -> datetime:
@@ -77,26 +149,68 @@ def _extract_text_from_attributed_body(blob: bytes) -> str | None:
 
 def extract_messages(
     since: datetime | None = None,
+    contact: str | None = None,
+    participants: Iterable[str] | None = None,
     db_path: Path = IMESSAGE_DB,
 ) -> Generator[RawMessage, None, None]:
     """Stream messages from chat.db, optionally filtered by date.
 
     Prefers the `text` column when available, otherwise decodes the
-    `attributedBody` blob.  Yields RawMessage objects sorted by contact
-    then date, suitable for downstream chunking by conversation window.
+    `attributedBody` blob. Yields RawMessage objects sorted by conversation
+    thread and date, suitable for downstream chunking by conversation window.
     """
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
+        participant_values = list(participants or [])
+        target_participants = _parse_participants_arg(contact, participant_values)
+        chat_participants = _load_chat_participants(conn)
+        matching_chat_ids: set[int] | None = None
+        raw_single_target = contact or (
+            participant_values[0] if participant_values else None
+        )
+
+        if target_participants is not None:
+            matching_chat_ids = {
+                chat_id
+                for chat_id, handles in chat_participants.items()
+                if _canonicalize_handles(handles) == target_participants
+            }
+            if len(target_participants) > 1 and not matching_chat_ids:
+                return
+
         query = """
+            WITH message_chat AS (
+                SELECT message_id, MIN(chat_id) AS chat_id
+                FROM chat_message_join
+                GROUP BY message_id
+            ),
+            chat_participants AS (
+                SELECT ordered.chat_id, GROUP_CONCAT(ordered.handle_id, X'1F') AS participants_raw
+                FROM (
+                    SELECT chj.chat_id AS chat_id, h.id AS handle_id
+                    FROM chat_handle_join chj
+                    JOIN handle h ON h.ROWID = chj.handle_id
+                    ORDER BY chj.chat_id, h.id
+                ) ordered
+                GROUP BY ordered.chat_id
+            )
             SELECT
                 m.ROWID   AS rowid,
                 m.text    AS text,
                 m.attributedBody AS attributed_body,
                 m.date    AS date,
                 m.is_from_me AS is_from_me,
-                COALESCE(h.id, 'unknown') AS contact
+                mc.chat_id AS chat_id,
+                cp.participants_raw AS participants_raw,
+                COALESCE(h.id, 'unknown') AS sender_handle,
+                COALESCE(
+                    printf('chat:%d', mc.chat_id),
+                    'handle:' || COALESCE(h.id, 'unknown')
+                ) AS conversation_sort
             FROM message m
+            LEFT JOIN message_chat mc ON mc.message_id = m.ROWID
+            LEFT JOIN chat_participants cp ON cp.chat_id = mc.chat_id
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             WHERE ((m.text IS NOT NULL AND m.text != '')
                OR m.attributedBody IS NOT NULL)
@@ -108,7 +222,26 @@ def extract_messages(
             query += " AND m.date >= ?"
             params.append(apple_cutoff)
 
-        query += " ORDER BY contact, m.date"
+        if target_participants is not None:
+            filter_clauses: list[str] = []
+            if matching_chat_ids:
+                placeholders = ",".join("?" for _ in matching_chat_ids)
+                filter_clauses.append(f"mc.chat_id IN ({placeholders})")
+                params.extend(sorted(matching_chat_ids))
+
+            if len(target_participants) == 1 and raw_single_target:
+                filter_clauses.append(
+                    f"(mc.chat_id IS NULL AND {_build_handle_match_clause('h.id')})"
+                )
+                params.extend(
+                    [raw_single_target, raw_single_target, target_participants[0]]
+                )
+
+            if not filter_clauses:
+                return
+            query += " AND (" + " OR ".join(filter_clauses) + ")"
+
+        query += " ORDER BY conversation_sort, m.date"
 
         cursor = conn.execute(query, params)
 
@@ -125,12 +258,37 @@ def extract_messages(
                 if not text:
                     continue
 
+                participant_tuple = ()
+                if row["participants_raw"]:
+                    participant_tuple = tuple(
+                        value
+                        for value in str(row["participants_raw"]).split("\x1f")
+                        if value
+                    )
+
+                sender_handle = row["sender_handle"]
+                if participant_tuple:
+                    conversation_id = f"chat:{row['chat_id']}"
+                    contact_label = _group_label(participant_tuple, sender_handle)
+                else:
+                    contact_label = sender_handle
+                    conversation_id = (
+                        f"handle:{_normalize_handle(sender_handle)}"
+                        if sender_handle != "unknown"
+                        else f"message:{row['rowid']}"
+                    )
+                    if sender_handle != "unknown":
+                        participant_tuple = (sender_handle,)
+
                 yield RawMessage(
                     rowid=row["rowid"],
                     text=text,
                     date=apple_ts_to_datetime(row["date"]),
                     is_from_me=bool(row["is_from_me"]),
-                    contact=row["contact"],
+                    contact=contact_label,
+                    sender=sender_handle,
+                    conversation_id=conversation_id,
+                    participants=participant_tuple,
                 )
     finally:
         conn.close()

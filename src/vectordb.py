@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 
 from src.chunker import Chunk
-from src.config import VECTOR_DB
+from src.config import EMBED_DIMENSIONS, VECTOR_DB
 
-EMBEDDING_DIM = 768  # nomic-embed-text
+EMBEDDING_DIM = EMBED_DIMENSIONS or 4096
 
 
 def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
@@ -21,6 +21,7 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT NOT NULL,
             contact TEXT,
+            thread_key TEXT,
             start_time REAL,
             end_time REAL,
             text TEXT NOT NULL,
@@ -28,10 +29,6 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
             embedding BLOB,
             created_at REAL DEFAULT (unixepoch())
         )
-    """)
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_dedup
-        ON chunks(source, contact, start_time)
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source)
@@ -44,6 +41,20 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
         conn.execute("ALTER TABLE chunks ADD COLUMN metadata TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: add thread_key for stable per-thread dedupe
+    try:
+        conn.execute("ALTER TABLE chunks ADD COLUMN thread_key TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    conn.execute(
+        "UPDATE chunks SET thread_key = COALESCE(thread_key, contact) "
+        "WHERE thread_key IS NULL"
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_chunks_dedup")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_dedup_thread
+        ON chunks(source, thread_key, start_time)
+    """)
     conn.commit()
     return conn
 
@@ -56,9 +67,10 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
         meta_json = json.dumps(chunk.metadata) if chunk.metadata else None
         cursor = conn.execute(
             """
-            INSERT INTO chunks (source, contact, start_time, end_time, text, message_count, embedding, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(source, contact, start_time) DO UPDATE SET
+            INSERT INTO chunks (source, contact, thread_key, start_time, end_time, text, message_count, embedding, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, thread_key, start_time) DO UPDATE SET
+                contact = excluded.contact,
                 end_time = excluded.end_time,
                 text = excluded.text,
                 message_count = excluded.message_count,
@@ -69,6 +81,7 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
             (
                 chunk.source,
                 chunk.contact,
+                chunk.thread_key,
                 chunk.start_time.timestamp(),
                 chunk.end_time.timestamp(),
                 chunk.text,
