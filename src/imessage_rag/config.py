@@ -1,0 +1,75 @@
+import os
+import socket
+from pathlib import Path
+from urllib.parse import urlparse
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional convenience dependency
+    load_dotenv = None
+
+# Load .env from repo root (two parents up from this file: src/imessage_rag/).
+if load_dotenv is not None:
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+
+def _expand(path: str) -> Path:
+    return Path(os.path.expanduser(path))
+
+
+_LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
+
+
+def _validate_localhost(url: str) -> str:
+    """Ensure a URL points to localhost. Raises ValueError otherwise."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    if hostname in ("localhost", "127.0.0.1", "::1"):
+        return url
+
+    try:
+        addr = socket.gethostbyname(hostname)
+    except socket.gaierror:
+        raise ValueError(
+            f"Hostname '{hostname}' cannot be resolved. "
+            f"Only localhost URLs are allowed."
+        )
+
+    if addr not in _LOCALHOST_ADDRS:
+        raise ValueError(
+            f"URL must point to localhost, but '{hostname}' resolves to {addr}. "
+            f"This system never sends data off-machine."
+        )
+
+    return url
+
+
+# iMessage
+IMESSAGE_DB = _expand(os.getenv("IMESSAGE_DB", "~/Library/Messages/chat.db"))
+
+# Ollama (always used for embeddings)
+OLLAMA_URL = _validate_localhost(os.getenv("OLLAMA_URL", "http://localhost:11434"))
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+_embed_dimensions = os.getenv("EMBED_DIMENSIONS", "").strip()
+EMBED_DIMENSIONS = int(_embed_dimensions) if _embed_dimensions else 768
+GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma3:4b")
+
+# Generation backend — "ollama" (default) or "openai" (local OpenAI-compatible proxy)
+GENERATION_BACKEND = os.getenv("GENERATION_BACKEND", "ollama").lower()
+_gen_api_url = os.getenv("GENERATION_API_URL", "")
+GENERATION_API_URL = _validate_localhost(_gen_api_url) if _gen_api_url else ""
+GENERATION_API_KEY = os.getenv("GENERATION_API_KEY", "")
+
+# Vector DB
+VECTOR_DB = _expand(os.getenv("VECTOR_DB", "~/.imessage-rag/vectors.db"))
+
+# Chunking
+CHUNK_WINDOW_HOURS = int(os.getenv("CHUNK_WINDOW_HOURS", "4"))
+EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "10"))
+
+# Auth
+AUTH_TOKEN_PATH = _expand("~/.imessage-rag/auth_token")
+
+# Apple Core Data epoch offset (seconds between 1970-01-01 and 2001-01-01)
+APPLE_EPOCH_OFFSET = 978307200

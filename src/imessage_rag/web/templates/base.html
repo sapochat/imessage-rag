@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}imessage-rag{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js"></script>
+    <script src="/static/marked.min.js"></script>
+    <script src="/static/purify.min.js"></script>
+    {% if auth_token %}
+    <script>var AUTH_TOKEN = "{{ auth_token }}";</script>
+    {% endif %}
+</head>
+<body>
+    <nav>
+        <span class="brand">imessage-rag</span>
+        <a href="/" class="{% if active == 'query' %}active{% endif %}">Query</a>
+        <a href="/ingest" class="{% if active == 'ingest' %}active{% endif %}">Ingest</a>
+        <a href="/status" class="{% if active == 'status' %}active{% endif %}">Status</a>
+        <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">Settings</a>
+    </nav>
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>
