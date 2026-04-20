@@ -8,7 +8,7 @@ class TestClean:
         text = "Check out this photo \ufffc and this one \ufffc"
         result = _clean(text)
         assert "\ufffc" not in result
-        assert "Check out this photo  and this one " == result
+        assert "Check out this photo  and this one" == result
 
     def test_truncates_long_text(self):
         text = "A" * (_MAX_CHARS + 1000)
