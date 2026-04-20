@@ -2,9 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
-from imessage_rag.chunker import Chunk, chunk_emails, chunk_imessages
-from imessage_rag.ingest.email import RawEmail
-from imessage_rag.ingest.imessage import RawMessage
+from imessage_rag.chunker import Chunk, chunk_imessages
+from imessage_rag.ingest import RawMessage
 
 
 def _msg(contact, minutes_offset, text="Hi", is_from_me=False):
@@ -30,7 +29,6 @@ class TestChunkImessages:
         msgs = [_msg("alice", 0, "Hello")]
         chunks = list(chunk_imessages(msgs))
         assert len(chunks) == 1
-        assert chunks[0].source == "imessage"
         assert chunks[0].contact == "alice"
         assert chunks[0].message_count == 1
         assert "Hello" in chunks[0].text
@@ -155,58 +153,3 @@ class TestChunkImessages:
         assert len(chunks) == 2
 
 
-class TestChunkEmails:
-    def test_empty_input(self):
-        assert list(chunk_emails([])) == []
-
-    def test_single_email(self):
-        email = RawEmail(
-            filepath="/test/1.emlx",
-            subject="Test Subject",
-            sender="sender@example.com",
-            recipients="recip@example.com",
-            date=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-            body="Email body text.",
-            message_id="<test-123@example.com>",
-        )
-        chunks = list(chunk_emails([email]))
-        assert len(chunks) == 1
-        c = chunks[0]
-        assert c.source == "email"
-        assert c.contact == "sender@example.com"
-        assert c.message_count == 1
-        assert "From: sender@example.com" in c.text
-        assert "Subject: Test Subject" in c.text
-        assert "Email body text." in c.text
-        assert c.metadata == {"message_id": "<test-123@example.com>"}
-
-    def test_email_without_message_id(self):
-        email = RawEmail(
-            filepath="/test/2.emlx",
-            subject="No ID",
-            sender="a@b.com",
-            recipients="c@d.com",
-            date=datetime(2024, 1, 15, tzinfo=timezone.utc),
-            body="Body.",
-            message_id="",
-        )
-        chunks = list(chunk_emails([email]))
-        assert chunks[0].metadata == {}
-
-    def test_multiple_emails_each_one_chunk(self):
-        emails = [
-            RawEmail(
-                filepath=f"/test/{i}.emlx",
-                subject=f"Email {i}",
-                sender=f"sender{i}@example.com",
-                recipients="r@example.com",
-                date=datetime(2024, 1, i + 1, tzinfo=timezone.utc),
-                body=f"Body {i}",
-                message_id=f"<{i}@example.com>",
-            )
-            for i in range(3)
-        ]
-        chunks = list(chunk_emails(emails))
-        assert len(chunks) == 3
-        for i, c in enumerate(chunks):
-            assert c.contact == f"sender{i}@example.com"

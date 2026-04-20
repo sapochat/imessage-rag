@@ -20,7 +20,6 @@ async def ingest_page(request: Request):
 @router.post("/ingest/start")
 async def ingest_start(
     request: Request,
-    source: str = Form(...),
     since: str = Form(""),
     contact: str = Form(""),
     participants: str = Form(""),
@@ -40,14 +39,14 @@ async def ingest_start(
             },
         )
 
-    if task_manager.has_running(source):
+    if task_manager.has_running():
         tasks = task_manager.all_tasks()
         return templates.TemplateResponse(
             "ingest.html",
-            {"request": request, "tasks": tasks, "error": f"An ingest for '{source}' is already running."},
+            {"request": request, "tasks": tasks, "error": "An ingest is already running."},
         )
 
-    task = task_manager.start_ingest(source, since_val, contact_val, participants_val)
+    task_manager.start_ingest(since_val, contact_val, participants_val)
     tasks = task_manager.all_tasks()
     return templates.TemplateResponse(
         "ingest.html", {"request": request, "tasks": tasks}

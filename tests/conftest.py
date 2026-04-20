@@ -1,4 +1,4 @@
-"""Shared fixtures for the personal-rag test suite."""
+"""Shared fixtures for the imessage-rag test suite."""
 
 import sqlite3
 import tempfile
@@ -69,7 +69,6 @@ def imessage_db(tmp_path):
 
 
 def make_chunk(
-    source="imessage",
     contact="test-contact",
     thread_key=None,
     start_time=None,
@@ -81,7 +80,6 @@ def make_chunk(
     """Helper to build a Chunk with sensible defaults."""
     now = datetime.now(tz=timezone.utc)
     return Chunk(
-        source=source,
         contact=contact,
         thread_key=thread_key or contact,
         start_time=start_time or now,

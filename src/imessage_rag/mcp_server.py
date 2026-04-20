@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TextIO
 
-SERVER_NAME = "personal-rag"
+SERVER_NAME = "imessage-rag"
 SERVER_VERSION = "0.1.0"
 MAX_TOP_K = 20
 
@@ -35,7 +35,7 @@ def _format_search_text(results: list[dict]) -> str:
         start = row.get("start_time") or "unknown"
         end = row.get("end_time") or "unknown"
         blocks.append(
-            f"{idx}. [{row['source']}] {row['contact']} | "
+            f"{idx}. {row['contact']} | "
             f"{start} -> {end} | "
             f"{row['message_count']} messages | "
             f"similarity {row['similarity']:.3f}\n"
@@ -56,21 +56,14 @@ def _search_messages(arguments: dict[str, Any]) -> dict[str, Any]:
         raise JsonRpcError(-32602, "'top_k' must be an integer") from exc
     top_k = max(1, min(top_k, MAX_TOP_K))
 
-    source = arguments.get("source")
-    if source == "":
-        source = None
-    if source not in (None, "imessage", "email"):
-        raise JsonRpcError(-32602, "'source' must be one of: imessage, email")
-
     from imessage_rag.embed import get_embedding
     from imessage_rag.vectordb import search
 
     query_embedding = get_embedding(query)
-    results = search(query_embedding, top_k=top_k, source=source)
+    results = search(query_embedding, top_k=top_k)
     safe_results = [
         {
             "id": row["id"],
-            "source": row["source"],
             "contact": row["contact"],
             "start_time": _isoformat(row["start_time"]),
             "end_time": _isoformat(row["end_time"]),
@@ -87,7 +80,6 @@ def _search_messages(arguments: dict[str, Any]) -> dict[str, Any]:
         "structuredContent": {
             "query": query,
             "top_k": top_k,
-            "source": source,
             "results": safe_results,
         },
     }
@@ -109,7 +101,6 @@ def _get_chunk(arguments: dict[str, Any]) -> dict[str, Any]:
     row = results[0]
     chunk = {
         "id": row["id"],
-        "source": row["source"],
         "contact": row["contact"],
         "start_time": _isoformat(row["start_time"]),
         "end_time": _isoformat(row["end_time"]),
@@ -118,7 +109,7 @@ def _get_chunk(arguments: dict[str, Any]) -> dict[str, Any]:
         "metadata": row.get("metadata", {}),
     }
     text = (
-        f"[{chunk['source']}] {chunk['contact']} | "
+        f"{chunk['contact']} | "
         f"{chunk['start_time']} -> {chunk['end_time']} | "
         f"{chunk['message_count']} messages\n\n"
         f"{chunk['text']}"
@@ -135,7 +126,6 @@ def _get_stats(_: dict[str, Any]) -> dict[str, Any]:
     stats = get_stats()
     text = (
         f"Total chunks: {stats['total_chunks']}\n"
-        f"By source: {stats['by_source']}\n"
         f"DB size: {stats['db_size_mb']} MB"
     )
     return {
@@ -147,8 +137,8 @@ def _get_stats(_: dict[str, Any]) -> dict[str, Any]:
 TOOLS = {
     "search_messages": {
         "description": (
-            "Semantic search over the local Personal RAG database. "
-            "Use this first to find relevant message or email chunks."
+            "Semantic search over the local imessage-rag database. "
+            "Use this first to find relevant iMessage conversation chunks."
         ),
         "inputSchema": {
             "type": "object",
@@ -163,11 +153,6 @@ TOOLS = {
                     "default": 5,
                     "minimum": 1,
                     "maximum": MAX_TOP_K,
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Optional source filter.",
-                    "enum": ["imessage", "email"],
                 },
             },
             "required": ["query"],

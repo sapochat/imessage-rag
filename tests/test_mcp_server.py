@@ -15,7 +15,7 @@ class TestHandleRequest:
         )
         assert result["protocolVersion"] == "2025-06-18"
         assert result["capabilities"] == {"tools": {}}
-        assert result["serverInfo"]["name"] == "personal-rag"
+        assert result["serverInfo"]["name"] == "imessage-rag"
 
     def test_tools_list(self):
         result = mcp_server._handle_request("tools/list", {})

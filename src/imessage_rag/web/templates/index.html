@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = "query" %}
-{% block title %}Query — Personal RAG{% endblock %}
+{% block title %}Query — imessage-rag{% endblock %}
 
 {% block content %}
 <div class="chat-container">
@@ -13,11 +13,6 @@
 
     <div class="chat-input-area">
         <div class="chat-settings">
-            <select id="source" title="Source filter">
-                <option value="">All sources</option>
-                <option value="imessage">iMessage</option>
-                <option value="email">Email</option>
-            </select>
             <select id="top_k" title="How many conversations to search through">
                 <option value="3">Fewer results (faster)</option>
                 <option value="5" selected>Balanced</option>
@@ -94,7 +89,7 @@ function renderSourceChips(container, sources, refPanel) {
 
     function makeChip(s, extraCls) {
         var chip = createEl('span', 'source-chip' + (extraCls ? ' ' + extraCls : ''));
-        chip.textContent = s.contact + ' (' + s.source + (s.similarity ? ', ' + s.similarity : '') + ')';
+        chip.textContent = s.contact + (s.similarity ? ' (' + s.similarity + ')' : '');
         if (s.id) {
             chip.dataset.chunkId = s.id;
             chip.onclick = function() { toggleChunkDetail(chip, s, refPanel); };
@@ -157,13 +152,6 @@ function toggleChunkDetail(chip, source, refPanel) {
                 var pre = createEl('pre', 'source-ref-text', data.text);
                 refPanel.appendChild(pre);
             }
-            var meta = data.metadata || source.metadata || {};
-            if (source.source === 'email' && meta.message_id) {
-                var link = createEl('a', 'source-ref-link', 'Open in Mail');
-                link.href = 'message://' + encodeURIComponent(meta.message_id);
-                link.title = 'Open this email in Mail.app';
-                refPanel.appendChild(link);
-            }
             scrollToBottom();
         })
         .catch(function(err) {
@@ -201,7 +189,6 @@ function sendMessage(e) {
     if (!q) return false;
     input.value = '';
 
-    var source = document.getElementById('source').value;
     var topK = parseInt(document.getElementById('top_k').value, 10) || 5;
 
     // Remove welcome message on first query
@@ -218,7 +205,6 @@ function sendMessage(e) {
         query: q,
         history: chatHistory,
         top_k: topK,
-        source: source || null,
         prior_chunk_ids: seenChunkIds
     });
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = "ingest" %}
-{% block title %}Ingest — Personal RAG{% endblock %}
+{% block title %}Ingest — imessage-rag{% endblock %}
 
 {% block content %}
 <h2 style="margin-bottom:1rem">Ingest Data</h2>
@@ -14,18 +14,11 @@
     <form hx-post="/ingest/start" hx-target="body" hx-swap="outerHTML">
         <div class="form-row">
             <div>
-                <label for="source">Source</label>
-                <select id="source" name="source" required>
-                    <option value="imessage">iMessage</option>
-                    <option value="email">Email</option>
-                </select>
-            </div>
-            <div>
                 <label for="since">Since (e.g. 30d, 7d, 24h — blank for all)</label>
                 <input type="text" id="since" name="since" placeholder="30d">
             </div>
             <div>
-                <label for="contact">iMessage Contact (optional)</label>
+                <label for="contact">Contact (optional)</label>
                 <input type="text" id="contact" name="contact" placeholder="+15551234567">
             </div>
             <div>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Personal RAG{% endblock %}</title>
+    <title>{% block title %}imessage-rag{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js"></script>
     <script src="/static/marked.min.js"></script>
@@ -14,7 +14,7 @@
 </head>
 <body>
     <nav>
-        <span class="brand">Personal RAG</span>
+        <span class="brand">imessage-rag</span>
         <a href="/" class="{% if active == 'query' %}active{% endif %}">Query</a>
         <a href="/ingest" class="{% if active == 'ingest' %}active{% endif %}">Ingest</a>
         <a href="/status" class="{% if active == 'status' %}active{% endif %}">Status</a>

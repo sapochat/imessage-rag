@@ -9,13 +9,11 @@ from typing import TYPE_CHECKING, Generator, Iterable
 from imessage_rag.config import CHUNK_WINDOW_HOURS
 
 if TYPE_CHECKING:
-    from imessage_rag.ingest.email import RawEmail
-    from imessage_rag.ingest.imessage import RawMessage
+    from imessage_rag.ingest import RawMessage
 
 
 @dataclass
 class Chunk:
-    source: str  # 'imessage' or 'email'
     contact: str
     thread_key: str
     start_time: datetime
@@ -40,7 +38,6 @@ def _format_imessage_chunk(messages: list[RawMessage], contact: str) -> Chunk:
         metadata["conversation_id"] = messages[0].conversation_id
 
     return Chunk(
-        source="imessage",
         contact=contact,
         thread_key=messages[0].conversation_id or contact,
         start_time=messages[0].date,
@@ -69,47 +66,16 @@ def chunk_imessages(
     for msg in messages:
         conversation_id = msg.conversation_id or msg.contact
         if conversation_id != current_conversation_id:
-            # New conversation — flush buffer
             if buffer:
                 yield _format_imessage_chunk(buffer, current_contact)
             buffer = [msg]
             current_contact = msg.contact
             current_conversation_id = conversation_id
         elif buffer and (msg.date - buffer[-1].date) > window:
-            # Same conversation but gap exceeds window — flush and start new chunk
             yield _format_imessage_chunk(buffer, current_contact)
             buffer = [msg]
         else:
             buffer.append(msg)
 
-    # Flush remaining
     if buffer:
         yield _format_imessage_chunk(buffer, current_contact)
-
-
-def chunk_emails(
-    emails: Iterable[RawEmail],
-) -> Generator[Chunk, None, None]:
-    """Create one chunk per email with a formatted header + body."""
-    for em in emails:
-        date_str = em.date.strftime("%Y-%m-%d %H:%M")
-        text = (
-            f"From: {em.sender}\n"
-            f"To: {em.recipients}\n"
-            f"Date: {date_str}\n"
-            f"Subject: {em.subject}\n\n"
-            f"{em.body}"
-        )
-        metadata = {}
-        if em.message_id:
-            metadata["message_id"] = em.message_id
-        yield Chunk(
-            source="email",
-            contact=em.sender,
-            thread_key=em.message_id or em.sender,
-            start_time=em.date,
-            end_time=em.date,
-            text=text,
-            message_count=1,
-            metadata=metadata,
-        )

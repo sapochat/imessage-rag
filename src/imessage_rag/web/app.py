@@ -1,4 +1,4 @@
-"""FastAPI application factory for the personal-rag web UI."""
+"""FastAPI application factory for the imessage-rag web UI."""
 
 import secrets
 from pathlib import Path
@@ -70,7 +70,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Personal RAG", docs_url=None, redoc_url=None)
+    app = FastAPI(title="imessage-rag", docs_url=None, redoc_url=None)
 
     token = _get_or_create_token()
 

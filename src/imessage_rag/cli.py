@@ -1,4 +1,4 @@
-"""CLI entry point for the personal RAG system."""
+"""CLI entry point for imessage-rag."""
 
 import argparse
 import sys
@@ -36,13 +36,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         print("Use either --contact or --participants, not both.")
         sys.exit(2)
 
-    if args.source == "imessage":
-        _ingest_imessage(since, getattr(args, "contact", None), participants)
-    elif args.source == "email":
-        _ingest_email(since)
-    else:
-        print(f"Unknown source: {args.source}")
-        sys.exit(1)
+    _ingest_imessage(since, getattr(args, "contact", None), participants)
 
 
 def _ingest_imessage(
@@ -52,7 +46,7 @@ def _ingest_imessage(
 ) -> None:
     from imessage_rag.chunker import chunk_imessages
     from imessage_rag.embed import get_embedding
-    from imessage_rag.ingest.imessage import extract_messages
+    from imessage_rag.ingest import extract_messages
     from imessage_rag.vectordb import insert_chunk
 
     since_str = since.strftime("%Y-%m-%d") if since else "all time"
@@ -96,53 +90,13 @@ def _ingest_imessage(
           f"in {elapsed:.1f}s")
 
 
-def _ingest_email(since: datetime | None) -> None:
-    from imessage_rag.chunker import chunk_emails
-    from imessage_rag.embed import get_embedding
-    from imessage_rag.ingest.email import extract_emails
-    from imessage_rag.vectordb import insert_chunk
-
-    since_str = since.strftime("%Y-%m-%d") if since else "all time"
-    print(f"Extracting emails since {since_str}...")
-
-    emails = extract_emails(since=since)
-    chunks = chunk_emails(emails)
-
-    total_chunks = 0
-    start = time.time()
-
-    for chunk in chunks:
-        total_chunks += 1
-
-        if total_chunks % 10 == 0:
-            elapsed = time.time() - start
-            rate = total_chunks / elapsed if elapsed > 0 else 0
-            print(
-                f"  Processed: {total_chunks} emails [{rate:.1f} chunks/s]",
-                end="\r",
-            )
-
-        try:
-            embedding = get_embedding(chunk.text)
-        except Exception as e:
-            print(f"\n  Warning: embedding failed for email "
-                  f"({chunk.contact}, {chunk.start_time.strftime('%Y-%m-%d %H:%M')}): {e}")
-            continue
-
-        insert_chunk(chunk, embedding)
-
-    elapsed = time.time() - start
-    print(f"\nDone. {total_chunks} email chunks in {elapsed:.1f}s")
-
-
 def cmd_query(args: argparse.Namespace) -> None:
     from imessage_rag.query import generate_answer, retrieve
 
-    source = getattr(args, "source", None)
     top_k = getattr(args, "top_k", 5)
 
     if args.retrieve_only:
-        results = retrieve(args.question, top_k=top_k, source=source)
+        results = retrieve(args.question, top_k=top_k)
         if not results:
             print("No matching chunks found.")
             return
@@ -152,7 +106,7 @@ def cmd_query(args: argparse.Namespace) -> None:
             print(f"Contact: {r['contact']}  |  {start.strftime('%Y-%m-%d %H:%M')}  |  {r['message_count']} msgs")
             print(r["text"][:500])
     else:
-        generate_answer(args.question, top_k=top_k, source=source)
+        generate_answer(args.question, top_k=top_k)
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -168,8 +122,6 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("Vector DB is empty. Run 'ingest' first.")
         return
     print(f"Total chunks: {stats['total_chunks']}")
-    for source, count in stats["by_source"].items():
-        print(f"  {source}: {count}")
     print(f"DB size: {stats['db_size_mb']:.2f} MB")
 
 
@@ -180,7 +132,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     _print_kv("Vector DB", str(VECTOR_DB))
     _print_kv("DB exists", "yes" if VECTOR_DB.exists() else "no")
     _print_kv("Embed model", EMBED_MODEL)
-    _print_kv("Embed dims", str(EMBED_DIMENSIONS or 4096))
+    _print_kv("Embed dims", str(EMBED_DIMENSIONS or 768))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
 
@@ -209,12 +161,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
-    print("Personal RAG doctor")
+    print("imessage-rag doctor")
     print()
     _print_kv("Vector DB", str(VECTOR_DB))
     _print_kv("DB exists", "yes" if VECTOR_DB.exists() else "no")
     _print_kv("Embed model", EMBED_MODEL)
-    _print_kv("Embed dims", str(EMBED_DIMENSIONS or 4096))
+    _print_kv("Embed dims", str(EMBED_DIMENSIONS or 768))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
     print()
@@ -236,46 +188,35 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print()
     print("Next steps")
     if not VECTOR_DB.exists():
-        print("  1. Reset or create a fresh DB if needed: `personal-rag reset-db --yes`")
-        print("  2. Ingest iMessages: `personal-rag ingest --source imessage --contact +14152258252`")
+        print("  1. Reset or create a fresh DB if needed: `imessage-rag reset-db --yes`")
+        print("  2. Ingest iMessages: `imessage-rag ingest --contact +15551234567`")
     else:
-        print("  1. Check current data: `personal-rag status`")
-        print("  2. Query it: `personal-rag query \"your question\"`")
+        print("  1. Check current data: `imessage-rag status`")
+        print("  2. Query it: `imessage-rag query \"your question\"`")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Personal RAG — local semantic search over iMessage and email"
+        description="imessage-rag — local semantic search over iMessage history"
     )
     sub = parser.add_subparsers(dest="command")
 
     p_ingest = sub.add_parser("ingest", help="Ingest messages into the vector DB")
-    p_ingest.add_argument(
-        "--source",
-        required=True,
-        choices=["imessage", "email"],
-        help="Data source to ingest",
-    )
     p_ingest.add_argument(
         "--since",
         help="Only ingest messages from this far back (e.g. 30d, 24h)",
     )
     p_ingest.add_argument(
         "--contact",
-        help="For iMessage only: ingest a single handle/phone number",
+        help="Ingest 1:1 chats with a single handle (phone or email).",
     )
     p_ingest.add_argument(
         "--participants",
-        help="For iMessage only: exact remote participant set as comma-separated handles",
+        help="Ingest one exact group thread as a comma-separated participant set.",
     )
 
     p_query = sub.add_parser("query", help="Search your messages with natural language")
     p_query.add_argument("question", help="Your question or search query")
-    p_query.add_argument(
-        "--source",
-        choices=["imessage", "email"],
-        help="Restrict search to a specific source",
-    )
     p_query.add_argument(
         "--top-k",
         type=int,

@@ -9,52 +9,36 @@ import numpy as np
 from imessage_rag.chunker import Chunk
 from imessage_rag.config import EMBED_DIMENSIONS, VECTOR_DB
 
-EMBEDDING_DIM = EMBED_DIMENSIONS or 4096
+EMBEDDING_DIM = EMBED_DIMENSIONS or 768
 
 
 def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
     """Create the DB and table if they don't exist."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL,
-            contact TEXT,
-            thread_key TEXT,
-            start_time REAL,
-            end_time REAL,
-            text TEXT NOT NULL,
-            message_count INTEGER,
-            embedding BLOB,
-            created_at REAL DEFAULT (unixepoch())
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_chunks_contact ON chunks(contact)
-    """)
-    # Migration: add metadata column for existing DBs
-    try:
-        conn.execute("ALTER TABLE chunks ADD COLUMN metadata TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Migration: add thread_key for stable per-thread dedupe
-    try:
-        conn.execute("ALTER TABLE chunks ADD COLUMN thread_key TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
     conn.execute(
-        "UPDATE chunks SET thread_key = COALESCE(thread_key, contact) "
-        "WHERE thread_key IS NULL"
+        """
+        CREATE TABLE IF NOT EXISTS chunks (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_key    TEXT    NOT NULL,
+            contact       TEXT,
+            start_time    REAL    NOT NULL,
+            end_time      REAL    NOT NULL,
+            text          TEXT    NOT NULL,
+            message_count INTEGER NOT NULL,
+            embedding     BLOB    NOT NULL,
+            metadata      TEXT,
+            created_at    REAL    DEFAULT (unixepoch())
+        )
+        """
     )
-    conn.execute("DROP INDEX IF EXISTS idx_chunks_dedup")
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_dedup_thread
-        ON chunks(source, thread_key, start_time)
-    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_dedup "
+        "ON chunks(thread_key, start_time)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_contact ON chunks(contact)"
+    )
     conn.commit()
     return conn
 
@@ -67,9 +51,9 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
         meta_json = json.dumps(chunk.metadata) if chunk.metadata else None
         cursor = conn.execute(
             """
-            INSERT INTO chunks (source, contact, thread_key, start_time, end_time, text, message_count, embedding, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(source, thread_key, start_time) DO UPDATE SET
+            INSERT INTO chunks (thread_key, contact, start_time, end_time, text, message_count, embedding, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(thread_key, start_time) DO UPDATE SET
                 contact = excluded.contact,
                 end_time = excluded.end_time,
                 text = excluded.text,
@@ -79,9 +63,8 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
                 created_at = unixepoch()
             """,
             (
-                chunk.source,
-                chunk.contact,
                 chunk.thread_key,
+                chunk.contact,
                 chunk.start_time.timestamp(),
                 chunk.end_time.timestamp(),
                 chunk.text,
@@ -99,22 +82,15 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
 def search(
     query_embedding: list[float],
     top_k: int = 5,
-    source: str | None = None,
     db_path: Path = VECTOR_DB,
 ) -> list[dict]:
     """Find the top-k most similar chunks by cosine similarity."""
     top_k = max(1, min(top_k, 50))
     conn = _ensure_db(db_path)
     try:
-        where = "WHERE embedding IS NOT NULL"
-        params: list = []
-        if source:
-            where += " AND source = ?"
-            params.append(source)
-
         rows = conn.execute(
-            f"SELECT id, source, contact, start_time, end_time, text, message_count, embedding, metadata FROM chunks {where}",
-            params,
+            "SELECT id, contact, thread_key, start_time, end_time, text, message_count, embedding, metadata "
+            "FROM chunks WHERE embedding IS NOT NULL"
         ).fetchall()
 
         if not rows:
@@ -138,20 +114,20 @@ def search(
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        results = []
-        for sim, row in scored[:top_k]:
-            results.append({
+        return [
+            {
                 "id": row[0],
-                "source": row[1],
-                "contact": row[2],
+                "contact": row[1],
+                "thread_key": row[2],
                 "start_time": row[3],
                 "end_time": row[4],
                 "text": row[5],
                 "message_count": row[6],
                 "similarity": sim,
                 "metadata": json.loads(row[8]) if row[8] else {},
-            })
-        return results
+            }
+            for sim, row in scored[:top_k]
+        ]
     finally:
         conn.close()
 
@@ -164,20 +140,20 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
     try:
         placeholders = ",".join("?" for _ in chunk_ids)
         rows = conn.execute(
-            f"SELECT id, source, contact, start_time, end_time, text, message_count, metadata "
+            f"SELECT id, contact, thread_key, start_time, end_time, text, message_count, metadata "
             f"FROM chunks WHERE id IN ({placeholders})",
             chunk_ids,
         ).fetchall()
         return [
             {
                 "id": r[0],
-                "source": r[1],
-                "contact": r[2],
+                "contact": r[1],
+                "thread_key": r[2],
                 "start_time": r[3],
                 "end_time": r[4],
                 "text": r[5],
                 "message_count": r[6],
-                "similarity": 0.0,  # not from a search, no score
+                "similarity": 0.0,
                 "metadata": json.loads(r[7]) if r[7] else {},
             }
             for r in rows
@@ -189,18 +165,14 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
 def get_stats(db_path: Path = VECTOR_DB) -> dict:
     """Return basic stats about the vector DB."""
     if not db_path.exists():
-        return {"total_chunks": 0, "by_source": {}, "db_size_mb": 0}
+        return {"total_chunks": 0, "db_size_mb": 0}
 
     conn = _ensure_db(db_path)
     try:
         total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-        sources = conn.execute(
-            "SELECT source, COUNT(*) FROM chunks GROUP BY source"
-        ).fetchall()
         db_size = db_path.stat().st_size / (1024 * 1024)
         return {
             "total_chunks": total,
-            "by_source": {s: c for s, c in sources},
             "db_size_mb": round(db_size, 2),
         }
     finally:
