@@ -3,9 +3,9 @@
 from datetime import datetime, timezone
 from typing import Generator
 
-from src.generate import generate_once, stream_chat
-from src.embed import get_embedding
-from src.vectordb import fetch_by_ids, search
+from imessage_rag.generate import generate_once, stream_chat
+from imessage_rag.embed import get_embedding
+from imessage_rag.vectordb import fetch_by_ids, search
 
 
 def retrieve(query: str, top_k: int = 5, source: str | None = None) -> list[dict]:

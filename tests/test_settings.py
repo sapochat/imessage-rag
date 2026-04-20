@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from src import settings
+from imessage_rag import settings
 
 
 @pytest.fixture(autouse=True)

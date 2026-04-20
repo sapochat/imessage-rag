@@ -11,7 +11,7 @@ from typing import Generator
 
 from bs4 import BeautifulSoup
 
-from src.config import MAIL_DIR
+from imessage_rag.config import MAIL_DIR
 
 logger = logging.getLogger(__name__)
 

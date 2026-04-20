@@ -2,9 +2,9 @@
 
 from datetime import datetime, timedelta, timezone
 
-from src.chunker import Chunk, chunk_emails, chunk_imessages
-from src.ingest.email import RawEmail
-from src.ingest.imessage import RawMessage
+from imessage_rag.chunker import Chunk, chunk_emails, chunk_imessages
+from imessage_rag.ingest.email import RawEmail
+from imessage_rag.ingest.imessage import RawMessage
 
 
 def _msg(contact, minutes_offset, text="Hi", is_from_me=False):

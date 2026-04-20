@@ -93,11 +93,11 @@ class TaskManager:
         return task
 
     def _run_ingest(self, task: IngestTask) -> None:
-        from src.chunker import chunk_emails, chunk_imessages
-        from src.embed import get_embedding
-        from src.ingest.email import extract_emails
-        from src.ingest.imessage import extract_messages
-        from src.vectordb import insert_chunk
+        from imessage_rag.chunker import chunk_emails, chunk_imessages
+        from imessage_rag.embed import get_embedding
+        from imessage_rag.ingest.email import extract_emails
+        from imessage_rag.ingest.imessage import extract_messages
+        from imessage_rag.vectordb import insert_chunk
 
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(tz=timezone.utc)

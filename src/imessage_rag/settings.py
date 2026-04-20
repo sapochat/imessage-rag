@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 
-from src.config import (
+from imessage_rag.config import (
     GENERATION_API_KEY,
     GENERATION_API_URL,
     GENERATION_BACKEND,

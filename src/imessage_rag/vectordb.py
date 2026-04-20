@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from src.chunker import Chunk
-from src.config import EMBED_DIMENSIONS, VECTOR_DB
+from imessage_rag.chunker import Chunk
+from imessage_rag.config import EMBED_DIMENSIONS, VECTOR_DB
 
 EMBEDDING_DIM = EMBED_DIMENSIONS or 4096
 

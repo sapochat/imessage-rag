@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.config import _validate_localhost
+from imessage_rag.config import _validate_localhost
 
 
 class TestValidateLocalhost:
@@ -26,7 +26,7 @@ class TestValidateLocalhost:
 
 class TestExpandPath:
     def test_expand_tilde(self):
-        from src.config import _expand
+        from imessage_rag.config import _expand
         result = _expand("~/test")
         assert "~" not in str(result)
         assert str(result).endswith("/test")

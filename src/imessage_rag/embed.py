@@ -5,7 +5,7 @@ import time
 
 import requests
 
-from src.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL
+from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL
 
 # nomic-embed-text has an 8192 token context window; ~4 chars/token is a safe estimate
 _MAX_CHARS = 30_000

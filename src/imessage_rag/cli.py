@@ -50,10 +50,10 @@ def _ingest_imessage(
     contact: str | None = None,
     participants: list[str] | None = None,
 ) -> None:
-    from src.chunker import chunk_imessages
-    from src.embed import get_embedding
-    from src.ingest.imessage import extract_messages
-    from src.vectordb import insert_chunk
+    from imessage_rag.chunker import chunk_imessages
+    from imessage_rag.embed import get_embedding
+    from imessage_rag.ingest.imessage import extract_messages
+    from imessage_rag.vectordb import insert_chunk
 
     since_str = since.strftime("%Y-%m-%d") if since else "all time"
     if participants:
@@ -97,10 +97,10 @@ def _ingest_imessage(
 
 
 def _ingest_email(since: datetime | None) -> None:
-    from src.chunker import chunk_emails
-    from src.embed import get_embedding
-    from src.ingest.email import extract_emails
-    from src.vectordb import insert_chunk
+    from imessage_rag.chunker import chunk_emails
+    from imessage_rag.embed import get_embedding
+    from imessage_rag.ingest.email import extract_emails
+    from imessage_rag.vectordb import insert_chunk
 
     since_str = since.strftime("%Y-%m-%d") if since else "all time"
     print(f"Extracting emails since {since_str}...")
@@ -136,7 +136,7 @@ def _ingest_email(since: datetime | None) -> None:
 
 
 def cmd_query(args: argparse.Namespace) -> None:
-    from src.query import generate_answer, retrieve
+    from imessage_rag.query import generate_answer, retrieve
 
     source = getattr(args, "source", None)
     top_k = getattr(args, "top_k", 5)
@@ -156,12 +156,12 @@ def cmd_query(args: argparse.Namespace) -> None:
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
-    from src.web.app import run
+    from imessage_rag.web.app import run
     run(port=args.port)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    from src.vectordb import get_stats
+    from imessage_rag.vectordb import get_stats
 
     stats = get_stats()
     if stats["total_chunks"] == 0:
@@ -174,8 +174,8 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    from src.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
-    from src.settings import get_generation_backend, get_generation_model
+    from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.settings import get_generation_backend, get_generation_model
 
     _print_kv("Vector DB", str(VECTOR_DB))
     _print_kv("DB exists", "yes" if VECTOR_DB.exists() else "no")
@@ -186,7 +186,7 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 
 def cmd_reset_db(args: argparse.Namespace) -> None:
-    from src.config import VECTOR_DB
+    from imessage_rag.config import VECTOR_DB
 
     db_path = VECTOR_DB
     if not db_path.exists():
@@ -206,8 +206,8 @@ def cmd_reset_db(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     import requests
 
-    from src.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
-    from src.settings import get_generation_backend, get_generation_model
+    from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.settings import get_generation_backend, get_generation_model
 
     print("Personal RAG doctor")
     print()

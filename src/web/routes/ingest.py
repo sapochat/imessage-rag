@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from src.web.app import templates
-from src.web.tasks import task_manager
+from imessage_rag.web.app import templates
+from imessage_rag.web.tasks import task_manager
 
 router = APIRouter()
 

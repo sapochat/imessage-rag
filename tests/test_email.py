@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.ingest.email import (
+from imessage_rag.ingest.email import (
     RawEmail,
     _allowed_folder,
     _extract_body,

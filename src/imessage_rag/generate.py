@@ -5,8 +5,8 @@ from typing import Generator
 
 import requests
 
-from src import settings
-from src.config import OLLAMA_URL
+from imessage_rag import settings
+from imessage_rag.config import OLLAMA_URL
 
 
 def _openai_headers(api_key: str) -> dict:

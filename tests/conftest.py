@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.chunker import Chunk
+from imessage_rag.chunker import Chunk
 
 
 @pytest.fixture
