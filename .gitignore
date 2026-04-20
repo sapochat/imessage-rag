@@ -1,7 +1,35 @@
+# Python
 __pycache__/
-*.pyc
-.env
+*.py[cod]
+*$py.class
 *.egg-info/
-dist/
+.eggs/
 build/
+dist/
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+
+# Vector DB (never commit real data)
+vectors.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
