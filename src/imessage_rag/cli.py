@@ -470,7 +470,7 @@ def main() -> None:
     p_profile.add_argument(
         "profile",
         choices=["show", "fast", "full", "custom"],
-        help="fast=nomic, full=qwen, custom=env-controlled",
+        help="fast=qwen 0.6b, full=qwen 8b, custom=env-controlled",
     )
 
     p_reset = sub.add_parser("reset-db", help="Delete the current vector DB")

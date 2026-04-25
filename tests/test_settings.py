@@ -5,6 +5,7 @@ import json
 import pytest
 
 from imessage_rag import settings
+from imessage_rag.config import EMBED_PROFILES
 
 
 @pytest.fixture(autouse=True)
@@ -63,3 +64,7 @@ class TestSettings:
 
         data = json.loads(isolated_settings.read_text())
         assert data["embed_profile"] == "fast"
+
+    def test_fast_embed_profile_uses_qwen_small(self):
+        assert EMBED_PROFILES["fast"]["model"] == "qwen3-embedding:0.6b"
+        assert EMBED_PROFILES["fast"]["dimensions"] == 1024

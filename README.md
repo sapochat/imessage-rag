@@ -22,7 +22,7 @@ Three ways to use it:
 - Python 3.11+
 - [Ollama](https://ollama.com) running locally, with:
   ```bash
-  ollama pull nomic-embed-text
+  ollama pull qwen3-embedding:0.6b
   ollama pull gemma4
   ```
 - Terminal must have **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access) so it can read `chat.db`.
@@ -70,7 +70,7 @@ imessage-rag query "what did we decide about the trip?"
 | `doctor` | Check Ollama, models, and active config. |
 | `contacts` | Check local Contacts resolution counts without printing contact data. |
 | `embed-profile show` | Show the active embedding profile/model/dimensions. |
-| `embed-profile fast` | Switch to `nomic-embed-text-v2-moe` for the Nomic fast profile. |
+| `embed-profile fast` | Switch to `qwen3-embedding:0.6b` for the lightweight Qwen profile. |
 | `embed-profile full` | Switch to `qwen3-embedding:8b` for higher-quality retrieval. |
 | `config` | Print active settings and paths. |
 | `reset-db --yes` | Delete the vector DB and start over. |
@@ -135,7 +135,7 @@ All config is environment variables. Defaults work out of the box. See [`.env.ex
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EMBED_PROFILE` | `custom` | `fast` uses `nomic-embed-text-v2-moe`; `full` uses `qwen3-embedding:8b`; `custom` uses explicit env values. Prefer `imessage-rag embed-profile fast|full`. |
+| `EMBED_PROFILE` | `custom` | `fast` uses `qwen3-embedding:0.6b`; `full` uses `qwen3-embedding:8b`; `custom` uses explicit env values. Prefer `imessage-rag embed-profile fast|full`. |
 | `EMBED_MODEL` | `nomic-embed-text` | Custom embedding model used when `EMBED_PROFILE=custom`. |
 | `EMBED_DIMENSIONS` | `768` | Custom embedding dimensions used when `EMBED_PROFILE=custom`. |
 | `GENERATION_MODEL` | `gemma4` | Any local Ollama chat model. |
@@ -163,7 +163,7 @@ This project exists because your iMessages are private. By design:
 ## Caveats
 
 - `chat.db` is Apple's internal SQLite schema. If Apple changes it in a macOS update, ingestion may break. The schema has been stable since ~Big Sur, but this is a real risk of the tool.
-- Retrieval quality depends heavily on the embedding model. `nomic-embed-text` is the default for speed; `qwen3-embedding:8b` is noticeably better on some queries but takes ~9GB and 3-5× longer to ingest.
+- Retrieval quality depends heavily on the embedding model. The fast profile uses `qwen3-embedding:0.6b`; `qwen3-embedding:8b` is noticeably better on some queries but takes ~9GB and 3-5× longer to ingest.
 - Contact resolution depends on macOS Contacts/AddressBook permissions. If access is denied, ingestion falls back to raw phone numbers and email addresses.
 
 ## License
