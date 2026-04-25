@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Iterable
 
+from imessage_rag.contacts import ContactResolver, get_default_resolver, normalize_handle
 from imessage_rag.config import APPLE_EPOCH_OFFSET, IMESSAGE_DB
 
 BATCH_SIZE = 500
@@ -27,11 +28,7 @@ class RawMessage:
 
 def _normalize_handle(value: str) -> str:
     """Normalize phone numbers and emails for matching."""
-    cleaned = value.strip()
-    if "@" in cleaned:
-        return cleaned.casefold()
-    digits = "".join(ch for ch in cleaned if ch.isdigit())
-    return digits or cleaned.casefold()
+    return normalize_handle(value)
 
 
 def _canonicalize_handles(values: Iterable[str]) -> tuple[str, ...]:
@@ -152,6 +149,8 @@ def extract_messages(
     contact: str | None = None,
     participants: Iterable[str] | None = None,
     db_path: Path = IMESSAGE_DB,
+    contact_resolver: ContactResolver | None = None,
+    resolve_contacts: bool = True,
 ) -> Generator[RawMessage, None, None]:
     """Stream messages from chat.db, optionally filtered by date.
 
@@ -162,15 +161,37 @@ def extract_messages(
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        participant_values = list(participants or [])
-        target_participants = _parse_participants_arg(contact, participant_values)
-        chat_participants = _load_chat_participants(conn)
-        matching_chat_ids: set[int] | None = None
-        raw_single_target = contact or (
-            participant_values[0] if participant_values else None
+        resolver = (
+            contact_resolver
+            if contact_resolver is not None
+            else get_default_resolver()
+            if resolve_contacts
+            else ContactResolver.empty()
         )
+        participant_values = list(participants or [])
+        if contact and participant_values:
+            raise ValueError("Use either 'contact' or 'participants', not both.")
+        target_participants = _parse_participants_arg(None, participant_values)
+        contact_match_values: tuple[str, ...] | None = None
+        if contact:
+            contact_match_values = _canonicalize_handles(
+                [contact, *resolver.handles_for_contact(contact)]
+            )
+        matching_chat_ids: set[int] | None = None
 
-        if target_participants is not None:
+        if contact_match_values is not None:
+            chat_participants = _load_chat_participants(conn)
+            matching_chat_ids = {
+                chat_id
+                for chat_id, handles in chat_participants.items()
+                if (canonical := _canonicalize_handles(handles))
+                and len(canonical) == 1
+                and canonical[0] in contact_match_values
+            }
+            if not contact_match_values:
+                return
+        elif target_participants is not None:
+            chat_participants = _load_chat_participants(conn)
             matching_chat_ids = {
                 chat_id
                 for chat_id, handles in chat_participants.items()
@@ -222,17 +243,37 @@ def extract_messages(
             query += " AND m.date >= ?"
             params.append(apple_cutoff)
 
-        if target_participants is not None:
+        if contact_match_values is not None:
             filter_clauses: list[str] = []
             if matching_chat_ids:
                 placeholders = ",".join("?" for _ in matching_chat_ids)
                 filter_clauses.append(f"mc.chat_id IN ({placeholders})")
                 params.extend(sorted(matching_chat_ids))
 
-            if len(target_participants) == 1 and raw_single_target:
+            direct_handle_clauses: list[str] = []
+            for value in contact_match_values:
+                direct_handle_clauses.append(
+                    f"(mc.chat_id IS NULL AND {_build_handle_match_clause('h.id')})"
+                )
+                params.extend([value, value, value])
+            if direct_handle_clauses:
+                filter_clauses.append("(" + " OR ".join(direct_handle_clauses) + ")")
+
+            if not filter_clauses:
+                return
+            query += " AND (" + " OR ".join(filter_clauses) + ")"
+        elif target_participants is not None:
+            filter_clauses: list[str] = []
+            if matching_chat_ids:
+                placeholders = ",".join("?" for _ in matching_chat_ids)
+                filter_clauses.append(f"mc.chat_id IN ({placeholders})")
+                params.extend(sorted(matching_chat_ids))
+
+            if len(target_participants) == 1 and participant_values:
                 filter_clauses.append(
                     f"(mc.chat_id IS NULL AND {_build_handle_match_clause('h.id')})"
                 )
+                raw_single_target = participant_values[0]
                 params.extend(
                     [raw_single_target, raw_single_target, target_participants[0]]
                 )
@@ -267,18 +308,27 @@ def extract_messages(
                     )
 
                 sender_handle = row["sender_handle"]
+                sender_label = (
+                    resolver.label_for_handle(sender_handle)
+                    if sender_handle != "unknown"
+                    else sender_handle
+                )
                 if participant_tuple:
                     conversation_id = f"chat:{row['chat_id']}"
-                    contact_label = _group_label(participant_tuple, sender_handle)
+                    display_participants = resolver.label_for_participants(
+                        participant_tuple
+                    )
+                    contact_label = _group_label(display_participants, sender_label)
                 else:
-                    contact_label = sender_handle
+                    display_participants = ()
+                    contact_label = sender_label
                     conversation_id = (
                         f"handle:{_normalize_handle(sender_handle)}"
                         if sender_handle != "unknown"
                         else f"message:{row['rowid']}"
                     )
                     if sender_handle != "unknown":
-                        participant_tuple = (sender_handle,)
+                        display_participants = (sender_label,)
 
                 yield RawMessage(
                     rowid=row["rowid"],
@@ -286,9 +336,9 @@ def extract_messages(
                     date=apple_ts_to_datetime(row["date"]),
                     is_from_me=bool(row["is_from_me"]),
                     contact=contact_label,
-                    sender=sender_handle,
+                    sender=sender_label,
                     conversation_id=conversation_id,
-                    participants=participant_tuple,
+                    participants=display_participants,
                 )
     finally:
         conn.close()

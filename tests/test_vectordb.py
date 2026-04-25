@@ -11,7 +11,9 @@ from imessage_rag.vectordb import (
     EMBEDDING_DIM,
     _ensure_db,
     fetch_by_ids,
+    filter_new_chunks,
     get_stats,
+    insert_chunks,
     insert_chunk,
     search,
 )
@@ -169,6 +171,35 @@ class TestInsertAndSearch:
         results = search(emb, top_k=1, db_path=vector_db)
         assert results[0]["metadata"] == {"message_id": "<abc@test.com>"}
 
+    def test_bulk_insert_chunks(self, vector_db):
+        chunks = [
+            make_chunk(
+                thread_key=f"bulk-{i}",
+                text=f"Bulk {i}",
+                start_time=datetime(2024, 1, i + 1, tzinfo=timezone.utc),
+            )
+            for i in range(3)
+        ]
+        embeddings = [_random_embedding(seed=i) for i in range(3)]
+
+        inserted = insert_chunks(chunks, embeddings, db_path=vector_db)
+
+        assert inserted == 3
+        stats = get_stats(vector_db)
+        assert stats["total_chunks"] == 3
+
+    def test_bulk_insert_validates_lengths(self, vector_db):
+        with pytest.raises(ValueError, match="same length"):
+            insert_chunks([make_chunk()], [], db_path=vector_db)
+
+    def test_filter_new_chunks_skips_existing_dedupe_keys(self, vector_db):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        existing = make_chunk(thread_key="thread-a", start_time=start)
+        new = make_chunk(thread_key="thread-b", start_time=start)
+        insert_chunk(existing, _random_embedding(seed=1), db_path=vector_db)
+
+        assert filter_new_chunks([existing, new], db_path=vector_db) == [new]
+
 
 class TestFetchByIds:
     def test_fetch_existing(self, vector_db):
@@ -212,3 +243,14 @@ class TestGetStats:
         stats = get_stats(vector_db)
         assert stats["total_chunks"] == 5
         assert stats["db_size_mb"] > 0
+
+    def test_stats_does_not_write_to_existing_db(self, vector_db):
+        conn = _ensure_db(vector_db)
+        conn.close()
+        vector_db.chmod(0o444)
+        try:
+            stats = get_stats(vector_db)
+        finally:
+            vector_db.chmod(0o644)
+
+        assert stats["total_chunks"] == 0

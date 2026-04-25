@@ -25,6 +25,7 @@ class IngestTask:
     status: TaskStatus = TaskStatus.PENDING
     chunks_processed: int = 0
     messages_processed: int = 0
+    chunks_existing: int = 0
     error: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -44,6 +45,7 @@ class IngestTask:
                 "status": self.status.value,
                 "chunks_processed": self.chunks_processed,
                 "messages_processed": self.messages_processed,
+                "chunks_existing": self.chunks_existing,
                 "error": self.error,
                 "started_at": self.started_at.isoformat() if self.started_at else None,
                 "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -89,10 +91,10 @@ class TaskManager:
 
     def _run_ingest(self, task: IngestTask) -> None:
         from imessage_rag.chunker import chunk_imessages
-        from imessage_rag.cli import parse_participants, parse_since
-        from imessage_rag.embed import get_embedding
+        from imessage_rag.cli import _embed_and_insert_batches, parse_participants, parse_since
+        from imessage_rag.config import EMBED_BATCH_SIZE, EMBED_WORKERS
         from imessage_rag.ingest import extract_messages
-        from imessage_rag.vectordb import insert_chunk
+        from imessage_rag.vectordb import filter_new_chunks
 
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(tz=timezone.utc)
@@ -107,6 +109,32 @@ class TaskManager:
                 participants=participant_list,
             )
             chunks = chunk_imessages(messages)
+            batch_size = max(1, EMBED_BATCH_SIZE)
+            workers = max(1, EMBED_WORKERS)
+            group_size = batch_size * workers
+            batch = []
+            batch_group = []
+
+            def flush_batch() -> None:
+                nonlocal batch_group
+                filtered_batches = []
+                existing = 0
+                for candidate_batch in batch_group:
+                    new_batch = filter_new_chunks(candidate_batch)
+                    existing += len(candidate_batch) - len(new_batch)
+                    if new_batch:
+                        filtered_batches.append(new_batch)
+                batch_group = []
+
+                inserted, _, inserted_messages = _embed_and_insert_batches(
+                    filtered_batches,
+                    workers=workers,
+                )
+                with task._lock:
+                    task.chunks_processed += inserted
+                    task.messages_processed += inserted_messages
+                    task.chunks_existing += existing
+                batch = []
 
             for chunk in chunks:
                 if task.cancel_requested:
@@ -114,16 +142,20 @@ class TaskManager:
                     task.finished_at = datetime.now(tz=timezone.utc)
                     return
 
-                try:
-                    embedding = get_embedding(chunk.text)
-                except Exception:
+                batch.append(chunk)
+                if len(batch) < batch_size:
                     continue
 
-                insert_chunk(chunk, embedding)
+                batch_group.append(batch)
+                batch = []
 
-                with task._lock:
-                    task.chunks_processed += 1
-                    task.messages_processed += chunk.message_count
+                if sum(len(group_batch) for group_batch in batch_group) >= group_size:
+                    flush_batch()
+
+            if batch:
+                batch_group.append(batch)
+            if batch_group and not task.cancel_requested:
+                flush_batch()
 
             task.status = TaskStatus.DONE
             task.finished_at = datetime.now(tz=timezone.utc)

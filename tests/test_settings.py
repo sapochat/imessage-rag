@@ -57,3 +57,9 @@ class TestSettings:
         assert all_settings["generation_model"] == "test-model"
         assert "generation_api_url" in all_settings
         assert "generation_api_key" in all_settings
+
+    def test_save_embed_profile(self, isolated_settings):
+        settings.save({"embed_profile": "fast"})
+
+        data = json.loads(isolated_settings.read_text())
+        assert data["embed_profile"] == "fast"

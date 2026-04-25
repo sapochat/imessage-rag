@@ -1,6 +1,14 @@
-"""Tests for embedding text cleaning logic."""
+"""Tests for embedding text cleaning and batching logic."""
 
-from imessage_rag.embed import _FALLBACK_CHAR_LIMITS, _MAX_CHARS, _candidate_prompts, _clean
+import pytest
+
+from imessage_rag.embed import (
+    _FALLBACK_CHAR_LIMITS,
+    _MAX_CHARS,
+    _candidate_prompts,
+    _clean,
+    get_embeddings,
+)
 
 
 class TestClean:
@@ -44,3 +52,44 @@ class TestCandidatePrompts:
 
     def test_skips_empty_candidates(self):
         assert _candidate_prompts("\ufffc\x00") == []
+
+
+class _FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+        self.url = "http://localhost:11434/api/embed"
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        raise AssertionError("raise_for_status should not be called")
+
+
+class TestGetEmbeddings:
+    def test_empty_batch_returns_empty_list(self):
+        assert get_embeddings([]) == []
+
+    def test_posts_batch_and_returns_embeddings(self, monkeypatch):
+        captured = {}
+
+        def fake_post(input_value):
+            captured["input"] = input_value
+            return _FakeResponse(
+                payload={"embeddings": [[1.0, 0.0], [0.0, 1.0]]}
+            )
+
+        monkeypatch.setattr("imessage_rag.embed._post_embedding", fake_post)
+
+        assert get_embeddings(["hello", "world"]) == [[1.0, 0.0], [0.0, 1.0]]
+        assert captured["input"] == ["hello", "world"]
+
+    def test_rejects_embedding_count_mismatch(self, monkeypatch):
+        monkeypatch.setattr(
+            "imessage_rag.embed._post_embedding",
+            lambda input_value: _FakeResponse(payload={"embeddings": [[1.0]]}),
+        )
+
+        with pytest.raises(ValueError, match="unexpected number"):
+            get_embeddings(["hello", "world"])
