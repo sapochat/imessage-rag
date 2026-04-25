@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from imessage_rag.config import APPLE_EPOCH_OFFSET
+from imessage_rag.contacts import ContactRecord, ContactResolver
 from imessage_rag.ingest import (
     RawMessage,
     apple_ts_to_datetime,
@@ -211,6 +212,57 @@ class TestExtractMessages:
         msgs = list(extract_messages(contact="15551234567", db_path=imessage_db))
         assert len(msgs) == 1
         assert msgs[0].text == "normalized"
+
+    def test_resolves_contact_labels_from_contacts(self, imessage_db):
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'hello', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.commit()
+        conn.close()
+
+        resolver = ContactResolver(
+            records=(ContactRecord("Alice Example", ("+15551234567",)),)
+        )
+        msgs = list(extract_messages(db_path=imessage_db, contact_resolver=resolver))
+
+        assert msgs[0].contact == "Alice Example"
+        assert msgs[0].sender == "Alice Example"
+        assert msgs[0].participants == ("Alice Example",)
+
+    def test_contact_filter_matches_contact_name(self, imessage_db):
+        conn = sqlite3.connect(str(imessage_db))
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (1, '+15551234567')")
+        conn.execute("INSERT INTO handle (ROWID, id) VALUES (2, '+15557654321')")
+        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (1, 'keep', ?, 0, 1)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.execute(
+            "INSERT INTO message (ROWID, text, date, is_from_me, handle_id) VALUES (2, 'skip', ?, 0, 2)",
+            (datetime_to_apple_ts(dt),),
+        )
+        conn.commit()
+        conn.close()
+
+        resolver = ContactResolver(
+            records=(ContactRecord("Alice Example", ("+15551234567",)),)
+        )
+        msgs = list(
+            extract_messages(
+                contact="Alice Example",
+                db_path=imessage_db,
+                contact_resolver=resolver,
+            )
+        )
+
+        assert len(msgs) == 1
+        assert msgs[0].text == "keep"
+        assert msgs[0].contact == "Alice Example"
 
     def test_participants_filter_matches_exact_group(self, imessage_db):
         conn = sqlite3.connect(str(imessage_db))

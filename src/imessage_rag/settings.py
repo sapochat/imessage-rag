@@ -1,7 +1,6 @@
-"""Persistent settings store — generation config saved to ~/.imessage-rag/settings.json.
+"""Persistent settings store — local config saved to ~/.imessage-rag/settings.json.
 
 Env vars in .env serve as fallback defaults. Saved UI settings take precedence.
-Only generation-related settings are mutable here; embedding/DB/chunking stay in .env.
 """
 
 import json

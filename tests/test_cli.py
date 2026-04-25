@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from imessage_rag.cli import _print_kv, parse_participants, parse_since
+from imessage_rag.cli import _imessage_db_readable, _print_kv, parse_participants, parse_since
 
 
 class TestParseSince:
@@ -42,3 +42,17 @@ class TestPrintKv:
     def test_alignment_format(self, capsys):
         _print_kv("Vector DB", "/tmp/test.db")
         assert "Vector DB" in capsys.readouterr().out
+
+
+class TestImessageDbReadable:
+    def test_existing_sqlite_db_is_readable(self, imessage_db):
+        readable, error = _imessage_db_readable(imessage_db)
+
+        assert readable is True
+        assert error is None
+
+    def test_missing_sqlite_db_is_not_readable(self, tmp_path):
+        readable, error = _imessage_db_readable(tmp_path / "missing.db")
+
+        assert readable is False
+        assert error is not None

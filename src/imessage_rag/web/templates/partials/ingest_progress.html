@@ -23,6 +23,7 @@
     </div>
     <div class="mono">
         {{ task.chunks_processed }} chunks &middot; {{ task.messages_processed }} messages
+        {% if task.chunks_existing %}&middot; {{ task.chunks_existing }} existing{% endif %}
     </div>
     {% if task.error %}
     <p class="error-msg" style="margin-top:.5rem">{{ task.error }}</p>

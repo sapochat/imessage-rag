@@ -5,11 +5,13 @@ import time
 
 import requests
 
-from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL
+from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, OLLAMA_URL
 
 # nomic-embed-text has an 8192 token context window; ~4 chars/token is a safe estimate
-_MAX_CHARS = 30_000
-_FALLBACK_CHAR_LIMITS = (20_000, 12_000, 8_000, 4_000)
+_MAX_CHARS = EMBED_MAX_CHARS
+_FALLBACK_CHAR_LIMITS = tuple(
+    limit for limit in (20_000, 12_000, 8_000, 4_000) if limit < _MAX_CHARS
+)
 
 # Unicode object replacement char that iMessage inserts for attachments
 _ATTACHMENT_PLACEHOLDER = re.compile(r"\ufffc")
@@ -38,11 +40,49 @@ def _candidate_prompts(text: str) -> list[str]:
     return prompts
 
 
-def _post_embedding(prompt: str) -> requests.Response:
-    payload = {"model": EMBED_MODEL, "input": prompt}
+def _post_embedding(input_value: str | list[str]) -> requests.Response:
+    payload = {"model": EMBED_MODEL, "input": input_value}
     if EMBED_DIMENSIONS is not None:
         payload["dimensions"] = EMBED_DIMENSIONS
-    return requests.post(f"{OLLAMA_URL}/api/embed", json=payload, timeout=120)
+    timeout = 120 if isinstance(input_value, str) else 300
+    return requests.post(f"{OLLAMA_URL}/api/embed", json=payload, timeout=timeout)
+
+
+def get_embeddings(texts: list[str], retries: int = 1) -> list[list[float]]:
+    """Get embeddings for a batch of texts with one Ollama request."""
+    if not texts:
+        return []
+
+    prompts = [_clean(text) for text in texts]
+    if any(not prompt for prompt in prompts):
+        raise ValueError("Cannot embed empty text after cleaning.")
+
+    last_error: Exception | None = None
+    for attempt in range(1 + retries):
+        resp = _post_embedding(prompts)
+        if resp.status_code == 200:
+            data = resp.json()
+            embeddings = data.get("embeddings") or []
+            if len(embeddings) != len(prompts):
+                raise ValueError(
+                    "Ollama returned an unexpected number of embeddings "
+                    f"({len(embeddings)} for {len(prompts)} prompts)."
+                )
+            return embeddings
+        if resp.status_code >= 500:
+            last_error = requests.HTTPError(
+                f"{resp.status_code} Server Error for url: {resp.url} "
+                f"(batch_size={len(prompts)})",
+                response=resp,
+            )
+            if attempt < retries:
+                time.sleep(1 * (attempt + 1))
+                continue
+            break
+        resp.raise_for_status()
+
+    assert last_error is not None
+    raise last_error
 
 
 def get_embedding(text: str, retries: int = 1) -> list[float]:

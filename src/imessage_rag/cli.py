@@ -1,8 +1,10 @@
 """CLI entry point for imessage-rag."""
 
 import argparse
+import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 
@@ -28,6 +30,85 @@ def _print_kv(label: str, value: str) -> None:
     print(f"{label:<18} {value}")
 
 
+def _imessage_db_readable(db_path) -> tuple[bool, str | None]:
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return False, type(exc).__name__
+    return True, None
+
+
+def _embed_and_insert_batch(chunks: list, warn=None) -> tuple[int, int, int]:
+    """Embed and store a chunk batch. Returns (inserted, skipped, messages_inserted)."""
+    if not chunks:
+        return 0, 0, 0
+
+    from imessage_rag.embed import get_embedding, get_embeddings
+    from imessage_rag.vectordb import insert_chunk, insert_chunks
+
+    try:
+        embeddings = get_embeddings([chunk.text for chunk in chunks])
+        insert_chunks(chunks, embeddings)
+        return len(chunks), 0, sum(chunk.message_count for chunk in chunks)
+    except Exception as batch_error:
+        if warn is not None:
+            warn(
+                "batch embedding failed "
+                f"({type(batch_error).__name__}); falling back to single chunks"
+            )
+
+    inserted = 0
+    skipped = 0
+    inserted_messages = 0
+    for chunk in chunks:
+        try:
+            embedding = get_embedding(chunk.text)
+            insert_chunk(chunk, embedding)
+            inserted += 1
+            inserted_messages += chunk.message_count
+        except Exception as exc:
+            skipped += 1
+            if warn is not None:
+                warn(
+                    "skipped one chunk after embedding failure "
+                    f"({type(exc).__name__}, start={chunk.start_time.strftime('%Y-%m-%d %H:%M')})"
+                )
+    return inserted, skipped, inserted_messages
+
+
+def _embed_and_insert_batches(
+    batches: list[list],
+    workers: int,
+    warn=None,
+) -> tuple[int, int, int]:
+    """Embed and store multiple batches, optionally concurrently."""
+    batches = [batch for batch in batches if batch]
+    if not batches:
+        return 0, 0, 0
+
+    workers = max(1, min(workers, len(batches)))
+    if workers == 1:
+        totals = [_embed_and_insert_batch(batch, warn=warn) for batch in batches]
+    else:
+        totals = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(_embed_and_insert_batch, batch, warn)
+                for batch in batches
+            ]
+            for future in as_completed(futures):
+                totals.append(future.result())
+
+    inserted = sum(total[0] for total in totals)
+    skipped = sum(total[1] for total in totals)
+    inserted_messages = sum(total[2] for total in totals)
+    return inserted, skipped, inserted_messages
+
+
 def cmd_ingest(args: argparse.Namespace) -> None:
     since = parse_since(args.since) if args.since else None
     participants = parse_participants(args.participants) if getattr(args, "participants", None) else None
@@ -36,18 +117,24 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         print("Use either --contact or --participants, not both.")
         sys.exit(2)
 
-    _ingest_imessage(since, getattr(args, "contact", None), participants)
+    _ingest_imessage(
+        since,
+        getattr(args, "contact", None),
+        participants,
+        reindex=getattr(args, "reindex", False),
+    )
 
 
 def _ingest_imessage(
     since: datetime | None,
     contact: str | None = None,
     participants: list[str] | None = None,
+    reindex: bool = False,
 ) -> None:
     from imessage_rag.chunker import chunk_imessages
-    from imessage_rag.embed import get_embedding
+    from imessage_rag.config import EMBED_BATCH_SIZE, EMBED_WORKERS
     from imessage_rag.ingest import extract_messages
-    from imessage_rag.vectordb import insert_chunk
+    from imessage_rag.vectordb import filter_new_chunks
 
     since_str = since.strftime("%Y-%m-%d") if since else "all time"
     if participants:
@@ -58,36 +145,74 @@ def _ingest_imessage(
 
     messages = extract_messages(since=since, contact=contact, participants=participants)
     chunks = chunk_imessages(messages)
+    batch_size = max(1, EMBED_BATCH_SIZE)
+    workers = max(1, EMBED_WORKERS)
+    group_size = batch_size * workers
 
     total_chunks = 0
     total_messages = 0
+    inserted_chunks = 0
+    skipped_chunks = 0
+    skipped_existing = 0
     start = time.time()
+    batch = []
+    batch_group = []
+
+    def warn(message: str) -> None:
+        print(f"\n  Warning: {message}")
+
+    def flush() -> None:
+        nonlocal inserted_chunks, skipped_chunks, skipped_existing, batch_group
+        candidate_batches = batch_group
+        batch_group = []
+        if not reindex:
+            filtered_batches = []
+            for candidate_batch in candidate_batches:
+                new_batch = filter_new_chunks(candidate_batch)
+                skipped_existing += len(candidate_batch) - len(new_batch)
+                if new_batch:
+                    filtered_batches.append(new_batch)
+            candidate_batches = filtered_batches
+
+        inserted, skipped, _ = _embed_and_insert_batches(
+            candidate_batches,
+            workers=workers,
+            warn=warn,
+        )
+        inserted_chunks += inserted
+        skipped_chunks += skipped
+
+        elapsed = time.time() - start
+        rate = inserted_chunks / elapsed if elapsed > 0 else 0
+        print(
+            f"  Embedded: {inserted_chunks}/{total_chunks} chunks "
+            f"({total_messages} messages, skipped {skipped_chunks}, existing {skipped_existing}) "
+            f"[{rate:.1f} chunks/s]",
+            end="\r",
+        )
 
     for chunk in chunks:
         total_chunks += 1
         total_messages += chunk.message_count
+        batch.append(chunk)
 
-        if total_chunks % 10 == 0:
-            elapsed = time.time() - start
-            rate = total_chunks / elapsed if elapsed > 0 else 0
-            print(
-                f"  Chunked: {total_chunks} chunks ({total_messages} messages) "
-                f"[{rate:.1f} chunks/s]",
-                end="\r",
-            )
+        if len(batch) >= batch_size:
+            batch_group.append(batch)
+            batch = []
 
-        try:
-            embedding = get_embedding(chunk.text)
-        except Exception as e:
-            print(f"\n  Warning: embedding failed for chunk ({chunk.contact}, "
-                  f"{chunk.start_time.strftime('%Y-%m-%d %H:%M')}): {e}")
-            continue
+        if sum(len(group_batch) for group_batch in batch_group) >= group_size:
+            flush()
 
-        insert_chunk(chunk, embedding)
+    if batch:
+        batch_group.append(batch)
+    if batch_group:
+        flush()
 
     elapsed = time.time() - start
-    print(f"\nDone. {total_chunks} chunks from {total_messages} messages "
-          f"in {elapsed:.1f}s")
+    print(
+        f"\nDone. {inserted_chunks}/{total_chunks} chunks from {total_messages} "
+        f"messages in {elapsed:.1f}s (skipped {skipped_chunks}, existing {skipped_existing})"
+    )
 
 
 def cmd_query(args: argparse.Namespace) -> None:
@@ -126,13 +251,21 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.config import CONTACTS_ENABLED, EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
+    readable, _ = _imessage_db_readable(IMESSAGE_DB)
+    _print_kv("iMessage DB", str(IMESSAGE_DB))
+    _print_kv("iMessage read", "yes" if readable else "no")
     _print_kv("Vector DB", str(VECTOR_DB))
     _print_kv("DB exists", "yes" if VECTOR_DB.exists() else "no")
+    _print_kv("Contacts", "enabled" if CONTACTS_ENABLED else "disabled")
+    _print_kv("Embed profile", EMBED_PROFILE)
     _print_kv("Embed model", EMBED_MODEL)
     _print_kv("Embed dims", str(EMBED_DIMENSIONS or 768))
+    _print_kv("Embed batch", str(EMBED_BATCH_SIZE))
+    _print_kv("Embed workers", str(EMBED_WORKERS))
+    _print_kv("Embed max chars", str(EMBED_MAX_CHARS))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
 
@@ -158,17 +291,32 @@ def cmd_reset_db(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     import requests
 
-    from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MODEL, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.config import EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.contacts import load_contacts
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
     print("imessage-rag doctor")
     print()
+    readable, read_error = _imessage_db_readable(IMESSAGE_DB)
+    _print_kv("iMessage DB", str(IMESSAGE_DB))
+    _print_kv(
+        "iMessage read",
+        "yes" if readable else f"no ({read_error or 'unknown error'})",
+    )
     _print_kv("Vector DB", str(VECTOR_DB))
     _print_kv("DB exists", "yes" if VECTOR_DB.exists() else "no")
+    _print_kv("Embed profile", EMBED_PROFILE)
     _print_kv("Embed model", EMBED_MODEL)
     _print_kv("Embed dims", str(EMBED_DIMENSIONS or 768))
+    _print_kv("Embed batch", str(EMBED_BATCH_SIZE))
+    _print_kv("Embed workers", str(EMBED_WORKERS))
+    _print_kv("Embed max chars", str(EMBED_MAX_CHARS))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
+    resolver = load_contacts()
+    _print_kv("Contacts", f"{resolver.contact_count} contacts / {resolver.handle_count} handles")
+    if resolver.errors:
+        _print_kv("Contacts errors", str(len(resolver.errors)))
     print()
 
     try:
@@ -195,6 +343,62 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print("  2. Query it: `imessage-rag query \"your question\"`")
 
 
+def cmd_contacts(args: argparse.Namespace) -> None:
+    from imessage_rag.contacts import default_contact_db_paths, load_contacts
+
+    paths = [path for path in default_contact_db_paths() if path.exists()]
+    resolver = load_contacts(paths)
+    print("Contacts resolution")
+    _print_kv("DBs found", str(len(paths)))
+    _print_kv("Contacts", str(resolver.contact_count))
+    _print_kv("Handles", str(resolver.handle_count))
+    _print_kv("Errors", str(len(resolver.errors)))
+    if resolver.errors:
+        print()
+        print("Errors are path/type only; no contact values are printed:")
+        for error in resolver.errors:
+            print(f"  {error}")
+
+
+def cmd_embed_profile(args: argparse.Namespace) -> None:
+    from imessage_rag import settings
+    from imessage_rag.config import (
+        EMBED_BATCH_SIZE,
+        EMBED_DIMENSIONS,
+        EMBED_MAX_CHARS,
+        EMBED_MODEL,
+        EMBED_PROFILE,
+        EMBED_PROFILES,
+        EMBED_WORKERS,
+    )
+
+    if args.profile == "show":
+        _print_kv("Active profile", EMBED_PROFILE)
+        _print_kv("Model", EMBED_MODEL)
+        _print_kv("Dimensions", str(EMBED_DIMENSIONS))
+        _print_kv("Batch", str(EMBED_BATCH_SIZE))
+        _print_kv("Workers", str(EMBED_WORKERS))
+        _print_kv("Max chars", str(EMBED_MAX_CHARS))
+        return
+
+    settings.save({"embed_profile": args.profile})
+
+    if args.profile == "custom":
+        print("Embedding profile set to custom. EMBED_MODEL/EMBED_DIMENSIONS env values will be used.")
+        return
+
+    profile = EMBED_PROFILES[args.profile]
+    print(f"Embedding profile set to {args.profile}.")
+    _print_kv("Model", profile["model"])
+    _print_kv("Dimensions", str(profile["dimensions"]))
+    _print_kv("Batch", str(profile["batch_size"]))
+    _print_kv("Workers", str(profile["workers"]))
+    _print_kv("Max chars", str(profile["max_chars"]))
+    print()
+    print("Embedding profile changes require a fresh vector DB and re-ingest.")
+    print("Run: imessage-rag reset-db --yes && imessage-rag ingest --reindex")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="imessage-rag — local semantic search over iMessage history"
@@ -213,6 +417,11 @@ def main() -> None:
     p_ingest.add_argument(
         "--participants",
         help="Ingest one exact group thread as a comma-separated participant set.",
+    )
+    p_ingest.add_argument(
+        "--reindex",
+        action="store_true",
+        help="Re-embed chunks even if they already exist in the vector DB.",
     )
 
     p_query = sub.add_parser("query", help="Search your messages with natural language")
@@ -234,6 +443,14 @@ def main() -> None:
     sub.add_parser("status", help="Show vector DB statistics")
     sub.add_parser("config", help="Show the active DB/model configuration")
     sub.add_parser("doctor", help="Check Ollama connectivity and active config")
+    sub.add_parser("contacts", help="Check local Contacts resolution without printing contact data")
+
+    p_profile = sub.add_parser("embed-profile", help="Show or switch embedding profiles")
+    p_profile.add_argument(
+        "profile",
+        choices=["show", "fast", "full", "custom"],
+        help="fast=nomic, full=qwen, custom=env-controlled",
+    )
 
     p_reset = sub.add_parser("reset-db", help="Delete the current vector DB")
     p_reset.add_argument(
@@ -262,6 +479,10 @@ def main() -> None:
         cmd_config(args)
     elif args.command == "doctor":
         cmd_doctor(args)
+    elif args.command == "contacts":
+        cmd_contacts(args)
+    elif args.command == "embed-profile":
+        cmd_embed_profile(args)
     elif args.command == "reset-db":
         cmd_reset_db(args)
     elif args.command == "serve":
