@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from imessage_rag.cli import _imessage_db_readable, _print_kv, parse_participants, parse_since
+from imessage_rag.cli import _embed_and_insert_batch, _imessage_db_readable, _print_kv, parse_participants, parse_since
+from imessage_rag.embed import EmbeddingConfigError
+from tests.conftest import make_chunk
 
 
 class TestParseSince:
@@ -56,3 +58,23 @@ class TestImessageDbReadable:
 
         assert readable is False
         assert error is not None
+
+
+class TestEmbedBatch:
+    def test_config_error_does_not_fall_back_per_chunk(self, monkeypatch):
+        calls = {"single": 0}
+
+        def fake_batch(texts):
+            raise EmbeddingConfigError("bad model")
+
+        def fake_single(text):
+            calls["single"] += 1
+            return [1.0]
+
+        monkeypatch.setattr("imessage_rag.embed.get_embeddings", fake_batch)
+        monkeypatch.setattr("imessage_rag.embed.get_embedding", fake_single)
+
+        with pytest.raises(EmbeddingConfigError):
+            _embed_and_insert_batch([make_chunk()])
+
+        assert calls["single"] == 0

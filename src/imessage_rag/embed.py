@@ -7,10 +7,21 @@ import requests
 
 from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, OLLAMA_URL
 
+
+class EmbeddingConfigError(RuntimeError):
+    """Non-recoverable embedding model/configuration error."""
+
+
+class EmbeddingInputTooLong(RuntimeError):
+    """Recoverable embedding error for prompts over the model context window."""
+
+
 # nomic-embed-text has an 8192 token context window; ~4 chars/token is a safe estimate
 _MAX_CHARS = EMBED_MAX_CHARS
 _FALLBACK_CHAR_LIMITS = tuple(
-    limit for limit in (20_000, 12_000, 8_000, 4_000) if limit < _MAX_CHARS
+    limit
+    for limit in (20_000, 12_000, 8_000, 4_000, 2_000, 1_000)
+    if limit < _MAX_CHARS
 )
 
 # Unicode object replacement char that iMessage inserts for attachments
@@ -48,6 +59,32 @@ def _post_embedding(input_value: str | list[str]) -> requests.Response:
     return requests.post(f"{OLLAMA_URL}/api/embed", json=payload, timeout=timeout)
 
 
+def _response_error_message(resp: requests.Response) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        text = resp.text.strip()
+        return text[:200] if text else resp.reason
+    message = data.get("error") or data.get("message") or str(data)
+    return str(message)[:200]
+
+
+def _raise_for_embedding_response(resp: requests.Response) -> None:
+    if resp.status_code in {400, 404}:
+        detail = _response_error_message(resp)
+        if resp.status_code == 400 and any(
+            marker in detail.lower()
+            for marker in ("context length", "input length", "too long")
+        ):
+            raise EmbeddingInputTooLong(detail)
+        raise EmbeddingConfigError(
+            f"Ollama embedding request failed ({resp.status_code}) for model "
+            f"'{EMBED_MODEL}': {detail}. "
+            f"Install it with `ollama pull {EMBED_MODEL}` or switch profiles."
+        )
+    resp.raise_for_status()
+
+
 def get_embeddings(texts: list[str], retries: int = 1) -> list[list[float]]:
     """Get embeddings for a batch of texts with one Ollama request."""
     if not texts:
@@ -79,7 +116,7 @@ def get_embeddings(texts: list[str], retries: int = 1) -> list[list[float]]:
                 time.sleep(1 * (attempt + 1))
                 continue
             break
-        resp.raise_for_status()
+        _raise_for_embedding_response(resp)
 
     assert last_error is not None
     raise last_error
@@ -117,7 +154,11 @@ def get_embedding(text: str, retries: int = 1) -> list[float]:
                     time.sleep(1 * (attempt + 1))
                     continue
                 break
-            resp.raise_for_status()
+            try:
+                _raise_for_embedding_response(resp)
+            except EmbeddingInputTooLong as exc:
+                last_error = exc
+                break
 
         if prompt_index < len(prompts) - 1:
             time.sleep(0.25)

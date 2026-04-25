@@ -3,10 +3,13 @@
 import pytest
 
 from imessage_rag.embed import (
+    EmbeddingConfigError,
+    EmbeddingInputTooLong,
     _FALLBACK_CHAR_LIMITS,
     _MAX_CHARS,
     _candidate_prompts,
     _clean,
+    get_embedding,
     get_embeddings,
 )
 
@@ -55,10 +58,12 @@ class TestCandidatePrompts:
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, text="", reason="error"):
         self.status_code = status_code
         self._payload = payload or {}
         self.url = "http://localhost:11434/api/embed"
+        self.text = text
+        self.reason = reason
 
     def json(self):
         return self._payload
@@ -93,3 +98,44 @@ class TestGetEmbeddings:
 
         with pytest.raises(ValueError, match="unexpected number"):
             get_embeddings(["hello", "world"])
+
+    def test_model_not_found_is_config_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "imessage_rag.embed._post_embedding",
+            lambda input_value: _FakeResponse(
+                status_code=404,
+                payload={"error": "model not found"},
+            ),
+        )
+
+        with pytest.raises(EmbeddingConfigError, match="ollama pull"):
+            get_embeddings(["hello"])
+
+    def test_context_length_batch_error_is_recoverable_type(self, monkeypatch):
+        monkeypatch.setattr(
+            "imessage_rag.embed._post_embedding",
+            lambda input_value: _FakeResponse(
+                status_code=400,
+                payload={"error": "the input length exceeds the context length"},
+            ),
+        )
+
+        with pytest.raises(EmbeddingInputTooLong):
+            get_embeddings(["hello"])
+
+    def test_single_embedding_retries_shorter_prompt_on_context_error(self, monkeypatch):
+        calls = []
+
+        def fake_post(input_value):
+            calls.append(input_value)
+            if len(calls) == 1:
+                return _FakeResponse(
+                    status_code=400,
+                    payload={"error": "the input length exceeds the context length"},
+                )
+            return _FakeResponse(payload={"embeddings": [[1.0, 0.0]]})
+
+        monkeypatch.setattr("imessage_rag.embed._post_embedding", fake_post)
+
+        assert get_embedding("A" * (_MAX_CHARS + 1000)) == [1.0, 0.0]
+        assert len(calls[1]) < len(calls[0])

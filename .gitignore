@@ -17,10 +17,19 @@ env/
 .env.local
 
 # Vector DB (never commit real data)
+*.db
+*.db-wal
+*.db-shm
 vectors.db
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Logs
+*.log
 
 # macOS
 .DS_Store

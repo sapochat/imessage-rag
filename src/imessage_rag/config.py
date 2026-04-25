@@ -74,7 +74,7 @@ CONTACTS_DB = _expand(_contacts_db) if _contacts_db else None
 OLLAMA_URL = _validate_localhost(os.getenv("OLLAMA_URL", "http://localhost:11434"))
 EMBED_PROFILES = {
     "fast": {
-        "model": "nomic-embed-text",
+        "model": "nomic-embed-text-v2-moe:latest",
         "dimensions": 768,
         "batch_size": 64,
         "workers": 2,
