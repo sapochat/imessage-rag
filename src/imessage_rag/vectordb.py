@@ -2,6 +2,7 @@
 
 import heapq
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -24,6 +25,8 @@ _UPSERT_CHUNK_SQL = """
         metadata = excluded.metadata,
         created_at = unixepoch()
 """
+
+_FTS_TOKEN = re.compile(r"[\w']+")
 
 
 def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
@@ -57,6 +60,12 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_contact ON chunks(contact)"
     )
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+        USING fts5(chunk_id UNINDEXED, contact, text, participants)
+        """
+    )
     conn.commit()
     return conn
 
@@ -65,9 +74,11 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
     """Insert a chunk with its embedding. Returns the row ID."""
     conn = _ensure_db(db_path)
     try:
-        cursor = conn.execute(_UPSERT_CHUNK_SQL, _chunk_row(chunk, embedding))
+        conn.execute(_UPSERT_CHUNK_SQL, _chunk_row(chunk, embedding))
+        row_id = _chunk_id(conn, chunk)
+        _sync_fts(conn, [(row_id, chunk)])
         conn.commit()
-        return cursor.lastrowid
+        return row_id
     finally:
         conn.close()
 
@@ -87,6 +98,47 @@ def _chunk_row(chunk: Chunk, embedding: list[float]) -> tuple:
     )
 
 
+def _chunk_id(conn: sqlite3.Connection, chunk: Chunk) -> int:
+    row = conn.execute(
+        "SELECT id FROM chunks WHERE thread_key = ? AND start_time = ?",
+        (chunk.thread_key, chunk.start_time.timestamp()),
+    ).fetchone()
+    if row is None:
+        raise sqlite3.OperationalError("Inserted chunk row was not found")
+    return int(row[0])
+
+
+def _fts_participants(chunk: Chunk) -> str:
+    participants = chunk.metadata.get("participants", []) if chunk.metadata else []
+    if isinstance(participants, list):
+        return " ".join(str(participant) for participant in participants)
+    return ""
+
+
+def _sync_fts(conn: sqlite3.Connection, rows: list[tuple[int, Chunk]]) -> None:
+    if not rows:
+        return
+    conn.executemany(
+        "DELETE FROM chunks_fts WHERE chunk_id = ?",
+        [(row_id,) for row_id, _ in rows],
+    )
+    conn.executemany(
+        """
+        INSERT INTO chunks_fts (chunk_id, contact, text, participants)
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            (
+                row_id,
+                chunk.contact,
+                chunk.embedding_text or chunk.text,
+                _fts_participants(chunk),
+            )
+            for row_id, chunk in rows
+        ],
+    )
+
+
 def insert_chunks(
     chunks: list[Chunk],
     embeddings: list[list[float]],
@@ -102,6 +154,8 @@ def insert_chunks(
     try:
         rows = [_chunk_row(chunk, embedding) for chunk, embedding in zip(chunks, embeddings)]
         conn.executemany(_UPSERT_CHUNK_SQL, rows)
+        fts_rows = [(_chunk_id(conn, chunk), chunk) for chunk in chunks]
+        _sync_fts(conn, fts_rows)
         conn.commit()
         return len(rows)
     finally:
@@ -139,6 +193,73 @@ def filter_new_chunks(chunks: list[Chunk], db_path: Path = VECTOR_DB) -> list[Ch
         return chunks
     finally:
         conn.close()
+
+
+def _row_to_result(row, similarity: float, metadata_index: int = 8) -> dict:
+    return {
+        "id": row[0],
+        "contact": row[1],
+        "thread_key": row[2],
+        "start_time": row[3],
+        "end_time": row[4],
+        "text": row[5],
+        "message_count": row[6],
+        "similarity": similarity,
+        "metadata": json.loads(row[metadata_index]) if row[metadata_index] else {},
+    }
+
+
+def _fts_query(query: str) -> str:
+    terms = []
+    for token in _FTS_TOKEN.findall(query):
+        token = token.strip("'")
+        if len(token) < 2:
+            continue
+        terms.append('"' + token.replace('"', '""') + '"')
+    return " OR ".join(terms[:12])
+
+
+def keyword_search(
+    query: str,
+    top_k: int = 5,
+    db_path: Path = VECTOR_DB,
+) -> list[dict]:
+    """Find chunks with exact-ish keyword matches via SQLite FTS5."""
+    top_k = max(1, min(top_k, 50))
+    if not db_path.exists():
+        return []
+
+    match_query = _fts_query(query)
+    if not match_query:
+        return []
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id, c.contact, c.thread_key, c.start_time, c.end_time,
+                c.text, c.message_count, c.embedding, c.metadata,
+                bm25(chunks_fts) AS rank
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.chunk_id
+            WHERE chunks_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (match_query, top_k),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+    results = []
+    for index, row in enumerate(rows):
+        result = _row_to_result(row, max(0.01, 0.8 - index * 0.03))
+        result["retrieval"] = "keyword"
+        results.append(result)
+    return results
 
 
 def search(
@@ -201,22 +322,56 @@ def search(
 
         scored = sorted(top, key=lambda x: x[0], reverse=True)
 
-        return [
-            {
-                "id": row[0],
-                "contact": row[1],
-                "thread_key": row[2],
-                "start_time": row[3],
-                "end_time": row[4],
-                "text": row[5],
-                "message_count": row[6],
-                "similarity": sim,
-                "metadata": json.loads(row[8]) if row[8] else {},
-            }
-            for sim, _, row in scored
-        ]
+        results = []
+        for sim, _, row in scored:
+            result = _row_to_result(row, sim)
+            result["retrieval"] = "vector"
+            results.append(result)
+        return results
     finally:
         conn.close()
+
+
+def hybrid_search(
+    query: str,
+    query_embedding: list[float],
+    top_k: int = 5,
+    db_path: Path = VECTOR_DB,
+) -> list[dict]:
+    """Merge vector and keyword retrieval so exact names/places are not lost."""
+    top_k = max(1, min(top_k, 50))
+    vector_results = search(query_embedding, top_k=top_k * 2, db_path=db_path)
+    keyword_results = keyword_search(query, top_k=top_k * 2, db_path=db_path)
+
+    merged: dict[int, dict] = {}
+    order = 0
+    for result in [*keyword_results, *vector_results]:
+        order += 1
+        existing = merged.get(result["id"])
+        if existing is None:
+            result["_merge_order"] = order
+            merged[result["id"]] = result
+            continue
+        existing["similarity"] = max(existing["similarity"], result["similarity"])
+        modes = {
+            mode
+            for mode in (
+                existing.get("retrieval"),
+                result.get("retrieval"),
+            )
+            if mode
+        }
+        if modes:
+            existing["retrieval"] = "+".join(sorted(modes))
+
+    results = sorted(
+        merged.values(),
+        key=lambda row: (row["similarity"], -row["_merge_order"]),
+        reverse=True,
+    )[:top_k]
+    for result in results:
+        result.pop("_merge_order", None)
+    return results
 
 
 def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:

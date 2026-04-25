@@ -13,8 +13,10 @@ from imessage_rag.vectordb import (
     fetch_by_ids,
     filter_new_chunks,
     get_stats,
+    hybrid_search,
     insert_chunks,
     insert_chunk,
+    keyword_search,
     search,
 )
 from tests.conftest import make_chunk
@@ -199,6 +201,50 @@ class TestInsertAndSearch:
         insert_chunk(existing, _random_embedding(seed=1), db_path=vector_db)
 
         assert filter_new_chunks([existing, new], db_path=vector_db) == [new]
+
+    def test_keyword_search_matches_embedding_text_metadata(self, vector_db):
+        chunk = make_chunk(
+            contact="Melanie Example",
+            text="Discussed weekend logistics",
+            metadata={"participants": ["Melanie Example"]},
+        )
+        chunk.embedding_text = (
+            "Conversation: Melanie Example\n"
+            "Participants: Melanie Example\n"
+            "Date range: 2024-02-09 17:00 to 2024-02-09 18:00\n"
+            "Messages:\n"
+            "[2024-02-09 17:08] Melanie Example: Discussed LA"
+        )
+        insert_chunk(chunk, _random_embedding(seed=1), db_path=vector_db)
+
+        results = keyword_search("Melanie LA", top_k=5, db_path=vector_db)
+
+        assert len(results) == 1
+        assert results[0]["contact"] == "Melanie Example"
+        assert results[0]["retrieval"] == "keyword"
+
+    def test_hybrid_search_includes_keyword_hits_when_vector_misses(self, vector_db):
+        keyword_chunk = make_chunk(
+            contact="Melanie Example",
+            thread_key="keyword",
+            text="Discussed LA",
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        vector_chunk = make_chunk(
+            contact="Other",
+            thread_key="vector",
+            text="Unrelated",
+            start_time=datetime(2024, 1, 2, tzinfo=timezone.utc),
+        )
+        query_vec = _random_embedding(seed=1)
+        insert_chunk(keyword_chunk, _random_embedding(seed=2), db_path=vector_db)
+        insert_chunk(vector_chunk, query_vec, db_path=vector_db)
+
+        results = hybrid_search("Melanie LA", query_vec, top_k=2, db_path=vector_db)
+        contacts = {result["contact"] for result in results}
+
+        assert "Melanie Example" in contacts
+        assert "Other" in contacts
 
 
 class TestFetchByIds:

@@ -38,7 +38,8 @@ def _format_search_text(results: list[dict]) -> str:
             f"{idx}. {row['contact']} | "
             f"{start} -> {end} | "
             f"{row['message_count']} messages | "
-            f"similarity {row['similarity']:.3f}\n"
+            f"similarity {row['similarity']:.3f} | "
+            f"{row.get('retrieval', 'unknown')}\n"
             f"{row['text']}"
         )
     return "\n\n---\n\n".join(blocks)
@@ -57,10 +58,10 @@ def _search_messages(arguments: dict[str, Any]) -> dict[str, Any]:
     top_k = max(1, min(top_k, MAX_TOP_K))
 
     from imessage_rag.embed import get_embedding
-    from imessage_rag.vectordb import search
+    from imessage_rag.vectordb import hybrid_search
 
     query_embedding = get_embedding(query)
-    results = search(query_embedding, top_k=top_k)
+    results = hybrid_search(query, query_embedding, top_k=top_k)
     safe_results = [
         {
             "id": row["id"],
@@ -69,6 +70,7 @@ def _search_messages(arguments: dict[str, Any]) -> dict[str, Any]:
             "end_time": _isoformat(row["end_time"]),
             "message_count": row["message_count"],
             "similarity": round(row["similarity"], 3),
+            "retrieval": row.get("retrieval", "unknown"),
             "text": row["text"],
             "metadata": row.get("metadata", {}),
         }

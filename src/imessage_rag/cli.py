@@ -51,7 +51,9 @@ def _embed_and_insert_batch(chunks: list, warn=None) -> tuple[int, int, int]:
     from imessage_rag.vectordb import insert_chunk, insert_chunks
 
     try:
-        embeddings = get_embeddings([chunk.text for chunk in chunks])
+        embeddings = get_embeddings(
+            [chunk.embedding_text or chunk.text for chunk in chunks]
+        )
         insert_chunks(chunks, embeddings)
         return len(chunks), 0, sum(chunk.message_count for chunk in chunks)
     except EmbeddingConfigError:
@@ -68,7 +70,7 @@ def _embed_and_insert_batch(chunks: list, warn=None) -> tuple[int, int, int]:
     inserted_messages = 0
     for chunk in chunks:
         try:
-            embedding = get_embedding(chunk.text)
+            embedding = get_embedding(chunk.embedding_text or chunk.text)
             insert_chunk(chunk, embedding)
             inserted += 1
             inserted_messages += chunk.message_count
@@ -240,7 +242,11 @@ def cmd_query(args: argparse.Namespace) -> None:
             return
         for i, r in enumerate(results, 1):
             start = datetime.fromtimestamp(r["start_time"], tz=timezone.utc)
-            print(f"\n--- Result {i} (similarity: {r['similarity']:.3f}) ---")
+            print(
+                f"\n--- Result {i} "
+                f"(similarity: {r['similarity']:.3f}, "
+                f"retrieval: {r.get('retrieval', 'unknown')}) ---"
+            )
             print(f"Contact: {r['contact']}  |  {start.strftime('%Y-%m-%d %H:%M')}  |  {r['message_count']} msgs")
             print(r["text"][:500])
     else:
@@ -264,7 +270,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    from imessage_rag.config import CONTACTS_ENABLED, EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.config import CONTACTS_ENABLED, CHUNK_MAX_MESSAGES, EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
     readable, _ = _imessage_db_readable(IMESSAGE_DB)
@@ -279,6 +285,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     _print_kv("Embed batch", str(EMBED_BATCH_SIZE))
     _print_kv("Embed workers", str(EMBED_WORKERS))
     _print_kv("Embed max chars", str(EMBED_MAX_CHARS))
+    _print_kv("Chunk max msgs", str(CHUNK_MAX_MESSAGES))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
 
@@ -304,7 +311,7 @@ def cmd_reset_db(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     import requests
 
-    from imessage_rag.config import EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.config import CHUNK_MAX_MESSAGES, EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
     from imessage_rag.contacts import load_contacts
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
@@ -324,6 +331,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     _print_kv("Embed batch", str(EMBED_BATCH_SIZE))
     _print_kv("Embed workers", str(EMBED_WORKERS))
     _print_kv("Embed max chars", str(EMBED_MAX_CHARS))
+    _print_kv("Chunk max msgs", str(CHUNK_MAX_MESSAGES))
     _print_kv("Generation", f"{get_generation_backend()} / {get_generation_model()}")
     _print_kv("Ollama URL", OLLAMA_URL)
     resolver = load_contacts()
