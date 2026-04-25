@@ -47,13 +47,15 @@ def _embed_and_insert_batch(chunks: list, warn=None) -> tuple[int, int, int]:
     if not chunks:
         return 0, 0, 0
 
-    from imessage_rag.embed import get_embedding, get_embeddings
+    from imessage_rag.embed import EmbeddingConfigError, get_embedding, get_embeddings
     from imessage_rag.vectordb import insert_chunk, insert_chunks
 
     try:
         embeddings = get_embeddings([chunk.text for chunk in chunks])
         insert_chunks(chunks, embeddings)
         return len(chunks), 0, sum(chunk.message_count for chunk in chunks)
+    except EmbeddingConfigError:
+        raise
     except Exception as batch_error:
         if warn is not None:
             warn(
@@ -70,6 +72,8 @@ def _embed_and_insert_batch(chunks: list, warn=None) -> tuple[int, int, int]:
             insert_chunk(chunk, embedding)
             inserted += 1
             inserted_messages += chunk.message_count
+        except EmbeddingConfigError:
+            raise
         except Exception as exc:
             skipped += 1
             if warn is not None:
@@ -133,6 +137,7 @@ def _ingest_imessage(
 ) -> None:
     from imessage_rag.chunker import chunk_imessages
     from imessage_rag.config import EMBED_BATCH_SIZE, EMBED_WORKERS
+    from imessage_rag.embed import EmbeddingConfigError
     from imessage_rag.ingest import extract_messages
     from imessage_rag.vectordb import filter_new_chunks
 
@@ -201,12 +206,20 @@ def _ingest_imessage(
             batch = []
 
         if sum(len(group_batch) for group_batch in batch_group) >= group_size:
-            flush()
+            try:
+                flush()
+            except EmbeddingConfigError as exc:
+                print(f"\nEmbedding configuration error: {exc}")
+                sys.exit(2)
 
     if batch:
         batch_group.append(batch)
     if batch_group:
-        flush()
+        try:
+            flush()
+        except EmbeddingConfigError as exc:
+            print(f"\nEmbedding configuration error: {exc}")
+            sys.exit(2)
 
     elapsed = time.time() - start
     print(
