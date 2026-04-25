@@ -102,7 +102,7 @@ elif _embed_dimensions:
     EMBED_DIMENSIONS = int(_embed_dimensions)
 else:
     EMBED_DIMENSIONS = 768
-GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma3:4b")
+GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemma4")
 
 # Generation backend — "ollama" (default) or "openai" (local OpenAI-compatible proxy)
 GENERATION_BACKEND = os.getenv("GENERATION_BACKEND", "ollama").lower()
@@ -115,6 +115,7 @@ VECTOR_DB = _expand(os.getenv("VECTOR_DB", "~/.imessage-rag/vectors.db"))
 
 # Chunking
 CHUNK_WINDOW_HOURS = int(os.getenv("CHUNK_WINDOW_HOURS", "4"))
+CHUNK_MAX_MESSAGES = int(os.getenv("CHUNK_MAX_MESSAGES", "80"))
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", _active_embed_profile.get("batch_size", 32)))
 EMBED_WORKERS = int(os.getenv("EMBED_WORKERS", _active_embed_profile.get("workers", 2)))
 EMBED_MAX_CHARS = int(os.getenv("EMBED_MAX_CHARS", _active_embed_profile.get("max_chars", 12000)))

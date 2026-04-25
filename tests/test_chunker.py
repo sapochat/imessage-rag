@@ -55,6 +55,16 @@ class TestChunkImessages:
         assert chunks[0].message_count == 1
         assert chunks[1].message_count == 1
 
+    def test_splits_on_max_messages(self):
+        msgs = [_msg("alice", i, f"Message {i}") for i in range(5)]
+
+        chunks = list(chunk_imessages(msgs, window_hours=4, max_messages=2))
+
+        assert [chunk.message_count for chunk in chunks] == [2, 2, 1]
+        assert "Message 0" in chunks[0].text
+        assert "Message 2" in chunks[1].text
+        assert "Message 4" in chunks[2].text
+
     def test_splits_on_contact_change(self):
         """Different contacts always produce separate chunks."""
         msgs = [
@@ -75,6 +85,30 @@ class TestChunkImessages:
         chunks = list(chunk_imessages(msgs))
         assert "[2024-01-15 12:00] alice: Hello" in chunks[0].text
         assert "[2024-01-15 12:01] Me: Hi back" in chunks[0].text
+
+    def test_embedding_text_includes_searchable_metadata(self):
+        msgs = [_msg("alice", 0, "LA trip")]
+        chunks = list(chunk_imessages(msgs))
+
+        assert "Conversation: alice" in chunks[0].embedding_text
+        assert "Participants: alice" in chunks[0].embedding_text
+        assert "Date range: 2024-01-15" in chunks[0].embedding_text
+        assert "LA trip" in chunks[0].embedding_text
+
+    def test_skips_attachment_only_messages(self):
+        msgs = [
+            _msg("alice", 0, "\ufffc"),
+            _msg("alice", 1, "Actual text"),
+        ]
+        chunks = list(chunk_imessages(msgs))
+
+        assert len(chunks) == 1
+        assert "\ufffc" not in chunks[0].text
+        assert chunks[0].message_count == 1
+        assert chunks[0].metadata["raw_message_count"] == 2
+
+    def test_drops_attachment_only_chunks(self):
+        assert list(chunk_imessages([_msg("alice", 0, "\ufffc")])) == []
 
     def test_start_end_times(self):
         """Chunk start_time and end_time match first/last message."""
@@ -151,5 +185,3 @@ class TestChunkImessages:
         ]
         chunks = list(chunk_imessages(msgs))
         assert len(chunks) == 2
-
-

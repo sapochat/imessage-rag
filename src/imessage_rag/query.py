@@ -5,7 +5,7 @@ from typing import Generator
 
 from imessage_rag.generate import generate_once, stream_chat
 from imessage_rag.embed import get_embedding
-from imessage_rag.vectordb import fetch_by_ids, search
+from imessage_rag.vectordb import fetch_by_ids, hybrid_search
 
 _SYSTEM_PROMPT = (
     "You are a search assistant for the user's iMessage history. "
@@ -18,25 +18,41 @@ _SYSTEM_PROMPT = (
     "- Do NOT define terms, give background info, or answer from general knowledge."
 )
 
+_MAX_CONTEXT_CHARS_PER_CHUNK = 4_000
+_MAX_CONTEXT_CHARS_TOTAL = 18_000
+
+
+def _clip_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n[excerpt truncated]"
+
 
 def retrieve(query: str, top_k: int = 5) -> list[dict]:
-    """Embed the query and return the top-k matching chunks."""
+    """Embed the query and return hybrid vector/keyword matches."""
     query_embedding = get_embedding(query)
-    return search(query_embedding, top_k=top_k)
+    return hybrid_search(query, query_embedding, top_k=top_k)
 
 
 def _format_context(results: list[dict]) -> str:
     """Format retrieved chunks into a context block for the LLM."""
     parts = []
+    remaining = _MAX_CONTEXT_CHARS_TOTAL
     for i, r in enumerate(results, 1):
+        if remaining <= 0:
+            break
         start = datetime.fromtimestamp(r["start_time"], tz=timezone.utc)
         end = datetime.fromtimestamp(r["end_time"], tz=timezone.utc)
         header = (
             f"[Chunk {i} | {r['contact']} | "
             f"{start.strftime('%Y-%m-%d %H:%M')}–{end.strftime('%H:%M')} | "
-            f"{r['message_count']} messages | similarity: {r['similarity']:.3f}]"
+            f"{r['message_count']} messages | similarity: {r['similarity']:.3f} | "
+            f"{r.get('retrieval', 'unknown')}]"
         )
-        parts.append(f"{header}\n{r['text']}")
+        text_limit = min(_MAX_CONTEXT_CHARS_PER_CHUNK, remaining)
+        text = _clip_text(r["text"], text_limit)
+        parts.append(f"{header}\n{text}")
+        remaining -= len(text)
     return "\n\n---\n\n".join(parts)
 
 
@@ -58,6 +74,7 @@ def _safe_result(r: dict, extras: dict | None = None) -> dict:
         "end_time": r["end_time"],
         "message_count": r["message_count"],
         "similarity": round(r["similarity"], 3),
+        "retrieval": r.get("retrieval", "unknown"),
         "text": r["text"][:300],
         "metadata": r.get("metadata", {}),
     }

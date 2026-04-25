@@ -23,7 +23,7 @@ Three ways to use it:
 - [Ollama](https://ollama.com) running locally, with:
   ```bash
   ollama pull nomic-embed-text
-  ollama pull gemma3:4b
+  ollama pull gemma4
   ```
 - Terminal must have **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access) so it can read `chat.db`.
 
@@ -138,11 +138,12 @@ All config is environment variables. Defaults work out of the box. See [`.env.ex
 | `EMBED_PROFILE` | `custom` | `fast` uses `nomic-embed-text-v2-moe`; `full` uses `qwen3-embedding:8b`; `custom` uses explicit env values. Prefer `imessage-rag embed-profile fast|full`. |
 | `EMBED_MODEL` | `nomic-embed-text` | Custom embedding model used when `EMBED_PROFILE=custom`. |
 | `EMBED_DIMENSIONS` | `768` | Custom embedding dimensions used when `EMBED_PROFILE=custom`. |
-| `GENERATION_MODEL` | `gemma3:4b` | Any local Ollama chat model. |
+| `GENERATION_MODEL` | `gemma4` | Any local Ollama chat model. |
 | `VECTOR_DB` | `~/.imessage-rag/vectors.db` | Where embeddings live. |
 | `CONTACTS_ENABLED` | `1` | Resolve handles through local macOS Contacts during ingest. |
 | `CONTACTS_DB` | auto-discover | Optional explicit AddressBook `.abcddb` path. |
 | `CHUNK_WINDOW_HOURS` | `4` | How to group messages into conversation chunks. |
+| `CHUNK_MAX_MESSAGES` | `80` | Hard cap on messages per chunk. Keeps busy threads searchable instead of embedding huge blended windows. |
 | `EMBED_BATCH_SIZE` | `32` | Number of chunks to send to Ollama per embedding request. Lower this if Ollama runs out of memory. |
 | `EMBED_WORKERS` | `2` | Number of concurrent embedding requests. Raise cautiously; local models often get slower if overloaded. |
 | `EMBED_MAX_CHARS` | `12000` | Max characters from each chunk sent to the embedding model. Lower values speed ingest but preserve less context. |
