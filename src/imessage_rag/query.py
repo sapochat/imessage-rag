@@ -20,6 +20,8 @@ _SYSTEM_PROMPT = (
 
 _MAX_CONTEXT_CHARS_PER_CHUNK = 4_000
 _MAX_CONTEXT_CHARS_TOTAL = 18_000
+_MAX_HISTORY_TURNS = 12
+_MAX_CONTEXT_CHUNKS = 20
 
 
 def _clip_text(text: str, limit: int) -> str:
@@ -130,7 +132,7 @@ def reformulate_query(
 
     recent = history[-6:]
     convo = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:200]}"
+        f"{'User' if m.get('role') == 'user' else 'Assistant'}: {str(m.get('content', ''))[:200]}"
         for m in recent
     )
 
@@ -157,7 +159,7 @@ def stream_answer_chat(
     prior_chunk_ids: list[int] | None = None,
 ) -> Generator[dict, None, None]:
     """Multi-turn chat: reformulate → retrieve → merge prior chunks → stream."""
-    MAX_CONTEXT_CHUNKS = 20
+    history = history[-_MAX_HISTORY_TURNS:]
 
     search_query = reformulate_query(user_msg, history)
 
@@ -166,11 +168,17 @@ def stream_answer_chat(
     except Exception as e:
         yield {"type": "error", "data": f"Retrieval failed: {e}"}
         return
+    new_results = new_results[:_MAX_CONTEXT_CHUNKS]
 
     new_ids = {r["id"] for r in new_results}
-    prior_ids_to_fetch = [
-        cid for cid in (prior_chunk_ids or []) if cid not in new_ids
-    ]
+    prior_ids_to_fetch = []
+    for cid in reversed(prior_chunk_ids or []):
+        if cid in new_ids or cid in prior_ids_to_fetch:
+            continue
+        prior_ids_to_fetch.append(cid)
+        if len(prior_ids_to_fetch) >= _MAX_CONTEXT_CHUNKS:
+            break
+    prior_ids_to_fetch.reverse()
 
     prior_results = []
     if prior_ids_to_fetch:
@@ -179,7 +187,9 @@ def stream_answer_chat(
         except Exception:
             pass
 
-    all_results = (new_results + prior_results)[:MAX_CONTEXT_CHUNKS]
+    remaining_prior_slots = max(0, _MAX_CONTEXT_CHUNKS - len(new_results))
+    selected_prior_results = prior_results[-remaining_prior_slots:] if remaining_prior_slots else []
+    all_results = new_results + selected_prior_results
 
     if not all_results:
         yield {"type": "sources", "data": []}
@@ -199,7 +209,10 @@ def stream_answer_chat(
     )
     messages = [{"role": "system", "content": system_msg}]
     for turn in history[-8:]:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+        role = turn.get("role")
+        if role not in {"user", "assistant"}:
+            continue
+        messages.append({"role": role, "content": str(turn.get("content", ""))[:4_000]})
     messages.append({"role": "user", "content": user_msg})
 
     try:

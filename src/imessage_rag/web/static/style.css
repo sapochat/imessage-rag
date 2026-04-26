@@ -4,6 +4,8 @@ html{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 body{max-width:900px;margin:0 auto;padding:0 1rem 3rem}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 nav{display:flex;gap:1.5rem;padding:1rem 0;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
 nav a{font-weight:600;font-size:.95rem;color:var(--muted)}
@@ -15,11 +17,11 @@ nav .brand{margin-right:auto;color:var(--text);font-size:1.1rem}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem}
 
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.25rem}
-input[type=text],select{width:100%;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:.9rem}
-button,.btn{padding:.5rem 1.25rem;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;font-size:.9rem;cursor:pointer;font-weight:600}
+input[type=text],input[type=password],select{width:100%;min-height:44px;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:.9rem}
+button,.btn{min-height:44px;padding:.5rem 1.25rem;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;font-size:.9rem;cursor:pointer;font-weight:600}
 button:hover,.btn:hover{opacity:.9}
 button:disabled{opacity:.5;cursor:not-allowed}
-.btn-sm{padding:.3rem .75rem;font-size:.8rem}
+.btn-sm{min-height:36px;padding:.3rem .75rem;font-size:.8rem}
 .btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}
 
 .form-row{display:flex;gap:.75rem;align-items:end;flex-wrap:wrap;margin-bottom:1rem}
@@ -66,7 +68,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .chat-error{color:#f87171}
 
 .chat-sources{font-size:.75rem;color:var(--muted);margin-bottom:.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.25rem}
-.source-chip{background:var(--card);padding:.1rem .45rem;border-radius:4px;font-size:.7rem}
+.source-chip{min-height:30px;background:var(--card);padding:.1rem .45rem;border:1px solid var(--border);border-radius:4px;font-size:.7rem;color:var(--text)}
 .source-chip-prior{opacity:.6}
 .source-prior-label{color:var(--muted);font-size:.7rem}
 
@@ -85,3 +87,13 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .chat-input-row{display:flex;gap:.5rem}
 .chat-input-row input{flex:1}
 .chat-input-row button{flex-shrink:0}
+
+@media (max-width:640px){
+body{padding:0 .75rem 2rem}
+nav{gap:.75rem;flex-wrap:wrap}
+nav .brand{flex-basis:100%}
+.chat-container{height:calc(100vh - 112px)}
+.chat-msg{max-width:95%}
+.chat-settings{flex-wrap:wrap}
+.chat-input-row{align-items:stretch}
+}
