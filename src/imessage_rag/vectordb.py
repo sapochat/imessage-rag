@@ -14,14 +14,15 @@ from imessage_rag.config import EMBED_DIMENSIONS, VECTOR_DB
 EMBEDDING_DIM = EMBED_DIMENSIONS or 768
 
 _UPSERT_CHUNK_SQL = """
-    INSERT INTO chunks (thread_key, contact, start_time, end_time, text, message_count, embedding, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO chunks (thread_key, contact, start_time, end_time, text, message_count, embedding, embedding_norm, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_key, start_time) DO UPDATE SET
         contact = excluded.contact,
         end_time = excluded.end_time,
         text = excluded.text,
         message_count = excluded.message_count,
         embedding = excluded.embedding,
+        embedding_norm = excluded.embedding_norm,
         metadata = excluded.metadata,
         created_at = unixepoch()
 """
@@ -48,11 +49,15 @@ def _ensure_db(db_path: Path = VECTOR_DB) -> sqlite3.Connection:
             text          TEXT    NOT NULL,
             message_count INTEGER NOT NULL,
             embedding     BLOB    NOT NULL,
+            embedding_norm REAL,
             metadata      TEXT,
             created_at    REAL    DEFAULT (unixepoch())
         )
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+    if "embedding_norm" not in columns:
+        conn.execute("ALTER TABLE chunks ADD COLUMN embedding_norm REAL")
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_dedup "
         "ON chunks(thread_key, start_time)"
@@ -84,7 +89,9 @@ def insert_chunk(chunk: Chunk, embedding: list[float], db_path: Path = VECTOR_DB
 
 
 def _chunk_row(chunk: Chunk, embedding: list[float]) -> tuple:
-    emb_blob = np.array(embedding, dtype=np.float32).tobytes()
+    emb_array = np.array(embedding, dtype=np.float32)
+    emb_blob = emb_array.tobytes()
+    emb_norm = float(np.linalg.norm(emb_array))
     meta_json = json.dumps(chunk.metadata) if chunk.metadata else None
     return (
         chunk.thread_key,
@@ -94,6 +101,7 @@ def _chunk_row(chunk: Chunk, embedding: list[float]) -> tuple:
         chunk.text,
         chunk.message_count,
         emb_blob,
+        emb_norm,
         meta_json,
     )
 
@@ -275,7 +283,7 @@ def search(
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         cursor = conn.execute(
-            "SELECT id, contact, thread_key, start_time, end_time, text, message_count, embedding, metadata "
+            "SELECT id, contact, thread_key, start_time, end_time, message_count, embedding, embedding_norm, metadata "
             "FROM chunks WHERE embedding IS NOT NULL"
         )
 
@@ -292,17 +300,19 @@ def search(
                 break
 
             vectors = []
+            row_norms = []
             valid_rows = []
             for row in rows:
-                emb = np.frombuffer(row[7], dtype=np.float32)
+                emb = np.frombuffer(row[6], dtype=np.float32)
                 if emb.shape == query_vec.shape:
                     vectors.append(emb)
+                    row_norms.append(row[7] or np.linalg.norm(emb))
                     valid_rows.append(row)
             if not vectors:
                 continue
 
             matrix = np.vstack(vectors)
-            norms = np.linalg.norm(matrix, axis=1)
+            norms = np.array(row_norms, dtype=np.float32)
             valid_mask = norms > 0
             if not np.any(valid_mask):
                 continue
@@ -321,12 +331,36 @@ def search(
                     heapq.heapreplace(top, item)
 
         scored = sorted(top, key=lambda x: x[0], reverse=True)
+        if not scored:
+            return []
+
+        ids = [row[0] for _, _, row in scored]
+        placeholders = ",".join("?" for _ in ids)
+        text_rows = conn.execute(
+            f"SELECT id, text FROM chunks WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        text_by_id = {row[0]: row[1] for row in text_rows}
 
         results = []
         for sim, _, row in scored:
-            result = _row_to_result(row, sim)
-            result["retrieval"] = "vector"
-            results.append(result)
+            text = text_by_id.get(row[0])
+            if text is None:
+                continue
+            results.append(
+                {
+                    "id": row[0],
+                    "contact": row[1],
+                    "thread_key": row[2],
+                    "start_time": row[3],
+                    "end_time": row[4],
+                    "text": text,
+                    "message_count": row[5],
+                    "similarity": sim,
+                    "metadata": json.loads(row[8]) if row[8] else {},
+                    "retrieval": "vector",
+                }
+            )
         return results
     finally:
         conn.close()
@@ -388,8 +422,8 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
             f"FROM chunks WHERE id IN ({placeholders})",
             chunk_ids,
         ).fetchall()
-        return [
-            {
+        by_id = {
+            r[0]: {
                 "id": r[0],
                 "contact": r[1],
                 "thread_key": r[2],
@@ -401,7 +435,8 @@ def fetch_by_ids(chunk_ids: list[int], db_path: Path = VECTOR_DB) -> list[dict]:
                 "metadata": json.loads(r[7]) if r[7] else {},
             }
             for r in rows
-        ]
+        }
+        return [by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in by_id]
     finally:
         conn.close()
 

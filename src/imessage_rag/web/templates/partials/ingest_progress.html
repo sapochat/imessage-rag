@@ -12,18 +12,20 @@
             {% if task.participants %}<span style="color:var(--muted);font-size:.85rem"> participants {{ task.participants }}</span>{% endif %}
             <span class="task-status {{ task.status.value }}">
                 {% if task.status.value == 'running' %}<span class="spinner"></span>{% endif %}
-                {{ task.status.value }}
+                {% if task.cancel_requested and task.status.value == 'running' %}cancelling{% else %}{{ task.status.value }}{% endif %}
             </span>
         </div>
-        {% if task.status.value == 'running' %}
+        {% if task.status.value == 'running' and not task.cancel_requested %}
         <form hx-post="/ingest/cancel/{{ task.id }}" hx-target="#task-{{ task.id }}" hx-swap="outerHTML">
             <button type="submit" class="btn-sm btn-outline">Cancel</button>
         </form>
         {% endif %}
     </div>
     <div class="mono">
-        {{ task.chunks_processed }} chunks &middot; {{ task.messages_processed }} messages
+        {{ task.chunks_processed }} embedded / {{ task.chunks_scanned }} scanned chunks
+        &middot; {{ task.messages_processed }} messages
         {% if task.chunks_existing %}&middot; {{ task.chunks_existing }} existing{% endif %}
+        {% if task.chunks_skipped %}&middot; {{ task.chunks_skipped }} skipped{% endif %}
     </div>
     {% if task.error %}
     <p class="error-msg" style="margin-top:.5rem">{{ task.error }}</p>

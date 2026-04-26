@@ -13,13 +13,15 @@ from imessage_rag.web.app import templates
 router = APIRouter()
 
 MAX_TOP_K = 50
+MAX_HISTORY_TURNS = 12
+MAX_PRIOR_CHUNK_IDS = 20
 
 
 class ChatRequest(BaseModel):
-    query: str
-    history: list[dict] = []
+    query: str = Field(min_length=1, max_length=2_000)
+    history: list[dict] = Field(default_factory=list)
     top_k: int = Field(default=5, ge=1, le=MAX_TOP_K)
-    prior_chunk_ids: list[int] = []
+    prior_chunk_ids: list[int] = Field(default_factory=list)
 
 
 @router.get("/")
@@ -48,9 +50,13 @@ async def query_stream(q: str, top_k: int = 5):
 async def chat_stream(req: ChatRequest):
     """SSE endpoint for multi-turn chat with conversation history."""
     def event_generator():
+        history = req.history[-MAX_HISTORY_TURNS:]
+        prior_chunk_ids = req.prior_chunk_ids[-MAX_PRIOR_CHUNK_IDS:]
         for event in stream_answer_chat(
-            req.query, req.history, top_k=req.top_k,
-            prior_chunk_ids=req.prior_chunk_ids,
+            req.query.strip(),
+            history,
+            top_k=req.top_k,
+            prior_chunk_ids=prior_chunk_ids,
         ):
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"

@@ -3,7 +3,6 @@
 import requests as http_requests
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
 
 from imessage_rag import settings
 from imessage_rag.config import OLLAMA_URL
@@ -34,6 +33,16 @@ def _test_backend(backend: str, model: str, api_url: str, api_key: str) -> str:
         return f"Connection failed: {e}"
 
 
+def _validate_settings_form(backend: str, model: str, api_url: str) -> str | None:
+    if backend not in {"ollama", "openai"}:
+        return "Backend must be either Ollama or OpenAI-compatible."
+    if not model:
+        return "Model is required."
+    if backend == "openai" and not api_url:
+        return "API URL is required for OpenAI-compatible backends."
+    return None
+
+
 @router.get("/settings")
 async def settings_page(request: Request):
     current = settings.get_all()
@@ -50,6 +59,13 @@ async def settings_save(request: Request):
     model = form.get("generation_model", "").strip()
     api_url = form.get("generation_api_url", "").strip()
     api_key = form.get("generation_api_key", "").strip()
+
+    validation_error = _validate_settings_form(backend, model, api_url)
+    if validation_error:
+        return templates.TemplateResponse(
+            "partials/settings_result.html",
+            {"request": request, "success": False, "message": validation_error},
+        )
 
     data: dict = {}
     if backend:

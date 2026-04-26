@@ -9,6 +9,7 @@ from imessage_rag.query import (
     _format_context,
     reformulate_query,
     retrieve,
+    stream_answer_chat,
 )
 
 
@@ -119,3 +120,33 @@ class TestReformulateQuery:
         history = [{"role": "user", "content": "prior"}]
         result = reformulate_query("follow up", history)
         assert result == "follow up"
+
+
+class TestStreamAnswerChatBounds:
+    @patch("imessage_rag.query.stream_chat")
+    @patch("imessage_rag.query.fetch_by_ids")
+    @patch("imessage_rag.query.retrieve")
+    @patch("imessage_rag.query.reformulate_query")
+    def test_prior_chunk_ids_are_bounded(self, mock_rewrite, mock_retrieve, mock_fetch, mock_stream):
+        mock_rewrite.return_value = "latest query"
+        mock_retrieve.return_value = [
+            {
+                "id": 100,
+                "contact": "alice",
+                "start_time": 1705320000.0,
+                "end_time": 1705320000.0,
+                "message_count": 1,
+                "similarity": 0.9,
+                "retrieval": "vector",
+                "text": "new",
+                "metadata": {},
+            }
+        ]
+        mock_fetch.return_value = []
+        mock_stream.return_value = iter(["ok"])
+
+        list(stream_answer_chat("follow up", [], prior_chunk_ids=list(range(100))))
+
+        fetched_ids = mock_fetch.call_args.args[0]
+        assert len(fetched_ids) == 20
+        assert fetched_ids == list(range(80, 100))

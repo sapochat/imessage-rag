@@ -39,6 +39,22 @@ async def ingest_start(
             },
         )
 
+    if since_val:
+        from imessage_rag.cli import parse_since
+
+        try:
+            parse_since(since_val)
+        except ValueError as exc:
+            tasks = task_manager.all_tasks()
+            return templates.TemplateResponse(
+                "ingest.html",
+                {
+                    "request": request,
+                    "tasks": tasks,
+                    "error": f"Invalid since value: {exc}",
+                },
+            )
+
     if task_manager.has_running():
         tasks = task_manager.all_tasks()
         return templates.TemplateResponse(
@@ -46,7 +62,14 @@ async def ingest_start(
             {"request": request, "tasks": tasks, "error": "An ingest is already running."},
         )
 
-    task_manager.start_ingest(since_val, contact_val, participants_val)
+    try:
+        task_manager.start_ingest(since_val, contact_val, participants_val)
+    except RuntimeError as exc:
+        tasks = task_manager.all_tasks()
+        return templates.TemplateResponse(
+            "ingest.html",
+            {"request": request, "tasks": tasks, "error": str(exc)},
+        )
     tasks = task_manager.all_tasks()
     return templates.TemplateResponse(
         "ingest.html", {"request": request, "tasks": tasks}
