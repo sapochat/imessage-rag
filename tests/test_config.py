@@ -40,6 +40,18 @@ class TestValidateLocalhost:
     @pytest.mark.parametrize(
         "url",
         [
+            "http://user@localhost:11434",
+            "http://user:password@localhost:11434",
+            "http://evil.example\\@localhost:11434",
+        ],
+    )
+    def test_rejects_userinfo_and_backslash_authorities(self, url):
+        with pytest.raises(ValueError, match="HTTP\\(S\\) localhost URL"):
+            _validate_localhost(url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
             "http://127.0.0.1:not-a-port",
             "http://[::1]:not-a-port",
             "http://127.0.0.1:99999",

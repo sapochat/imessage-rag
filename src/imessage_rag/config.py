@@ -39,7 +39,13 @@ def _validate_localhost(url: str) -> str:
     parsed = urlparse(url)
     hostname = parsed.hostname
 
-    if parsed.scheme not in {"http", "https"} or not hostname:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or "\\" in parsed.netloc
+    ):
         raise ValueError(
             "URL must be an HTTP(S) localhost URL, such as "
             "'http://localhost:11434'."
