@@ -60,35 +60,48 @@ def _validate_localhost(url: str) -> str:
         )
 
     try:
-        if ipaddress.ip_address(hostname).is_loopback:
-            return url
+        literal = ipaddress.ip_address(hostname)
     except ValueError:
-        pass
+        literal = None
 
-    try:
-        addr_infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        raise ValueError(
-            f"Hostname '{hostname}' cannot be resolved. "
-            f"Only localhost URLs are allowed."
-        )
+    if literal is not None:
+        if not literal.is_loopback:
+            raise ValueError(
+                f"URL must point to localhost, but '{hostname}' is not loopback. "
+                f"This system never sends data off-machine."
+            )
+        address = literal.compressed
+    else:
+        try:
+            addr_infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            raise ValueError(
+                f"Hostname '{hostname}' cannot be resolved. "
+                f"Only localhost URLs are allowed."
+            )
 
-    addresses = {
-        addr_info[4][0]
-        for addr_info in addr_infos
-        if addr_info[4]
-    }
-    if addresses and all(ipaddress.ip_address(addr).is_loopback for addr in addresses):
-        return url
+        addresses = list(dict.fromkeys(
+            str(addr_info[4][0])
+            for addr_info in addr_infos
+            if addr_info[4]
+        ))
+        if not addresses or not all(
+            ipaddress.ip_address(addr).is_loopback for addr in addresses
+        ):
+            resolved = ", ".join(sorted(addresses)) or "no addresses"
+            raise ValueError(
+                f"URL must point to localhost, but '{hostname}' resolves to {resolved}. "
+                f"This system never sends data off-machine."
+            )
 
-    try:
-        resolved = ", ".join(sorted(addresses)) or "no addresses"
-    except TypeError:
-        resolved = "unrecognized addresses"
-    raise ValueError(
-        f"URL must point to localhost, but '{hostname}' resolves to {resolved}. "
-        f"This system never sends data off-machine."
-    )
+        # Pin validated hostnames to a loopback literal so DNS cannot change
+        # between validation and the eventual HTTP request. Prefer IPv4 when
+        # available because most local Ollama installations bind there.
+        address = next((addr for addr in addresses if ":" not in addr), addresses[0])
+
+    literal_host = f"[{address}]" if ":" in address else address
+    netloc = literal_host if port is None else f"{literal_host}:{port}"
+    return parsed._replace(netloc=netloc).geturl()
 
 
 # iMessage

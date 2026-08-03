@@ -309,9 +309,18 @@ def cmd_reset_db(args: argparse.Namespace) -> None:
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
-    import requests
-
-    from imessage_rag.config import CHUNK_MAX_MESSAGES, EMBED_BATCH_SIZE, EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, EMBED_PROFILE, EMBED_WORKERS, IMESSAGE_DB, OLLAMA_URL, VECTOR_DB
+    from imessage_rag.config import (
+        CHUNK_MAX_MESSAGES,
+        EMBED_BATCH_SIZE,
+        EMBED_DIMENSIONS,
+        EMBED_MAX_CHARS,
+        EMBED_MODEL,
+        EMBED_PROFILE,
+        EMBED_WORKERS,
+        IMESSAGE_DB,
+        OLLAMA_URL,
+        VECTOR_DB,
+    )
     from imessage_rag.contacts import load_contacts
     from imessage_rag.settings import get_generation_backend, get_generation_model
 
@@ -341,7 +350,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print()
 
     try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        from imessage_rag import local_http
+
+        resp = local_http.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         resp.raise_for_status()
         models = [m.get("name", "") for m in resp.json().get("models", [])]
         print("Ollama: online")

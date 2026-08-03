@@ -3,9 +3,7 @@
 import json
 from typing import Generator
 
-import requests
-
-from imessage_rag import settings
+from imessage_rag import local_http, settings
 from imessage_rag.config import OLLAMA_URL
 
 
@@ -33,7 +31,7 @@ def stream_chat(messages: list[dict], model: str | None = None) -> Generator[str
 
 
 def _stream_chat_ollama(messages: list[dict], model: str) -> Generator[str, None, None]:
-    resp = requests.post(
+    resp = local_http.post(
         f"{OLLAMA_URL}/api/chat",
         json={"model": model, "messages": messages, "stream": True},
         stream=True,
@@ -56,7 +54,7 @@ def _stream_chat_openai(messages: list[dict], model: str) -> Generator[str, None
     api_url = settings.get_generation_api_url()
     api_key = settings.get_generation_api_key()
 
-    resp = requests.post(
+    resp = local_http.post(
         f"{api_url}/chat/completions",
         headers=_openai_headers(api_key),
         json={"model": model, "messages": messages, "stream": True},
@@ -99,7 +97,7 @@ def generate_once(prompt: str, model: str | None = None) -> str:
 
 
 def _generate_once_ollama(prompt: str, model: str) -> str:
-    resp = requests.post(
+    resp = local_http.post(
         f"{OLLAMA_URL}/api/generate",
         json={"model": model, "prompt": prompt, "stream": False},
         timeout=30,

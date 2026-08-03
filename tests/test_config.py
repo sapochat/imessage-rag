@@ -1,6 +1,8 @@
 """Tests for configuration validation."""
 
 import socket
+import ipaddress
+from urllib.parse import urlparse
 
 import pytest
 
@@ -9,7 +11,11 @@ from imessage_rag.config import _validate_localhost
 
 class TestValidateLocalhost:
     def test_accepts_localhost(self):
-        assert _validate_localhost("http://localhost:11434") == "http://localhost:11434"
+        result = _validate_localhost("http://localhost:11434")
+        parsed = urlparse(result)
+        assert parsed.hostname is not None
+        assert ipaddress.ip_address(parsed.hostname).is_loopback
+        assert parsed.port == 11434
 
     def test_accepts_127_0_0_1(self):
         assert _validate_localhost("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
@@ -84,7 +90,20 @@ class TestValidateLocalhost:
 
         assert (
             _validate_localhost("http://loopback-alias.test:11434")
-            == "http://loopback-alias.test:11434"
+            == "http://127.0.0.1:11434"
+        )
+
+    def test_pinning_preserves_path_and_query(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *args, **kwargs: [
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 11434)),
+            ],
+        )
+        assert (
+            _validate_localhost("http://loopback.test:11434/v1/models?active=1")
+            == "http://[::1]:11434/v1/models?active=1"
         )
 
 

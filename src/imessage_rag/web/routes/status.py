@@ -1,10 +1,8 @@
 """Status routes — dashboard with vector DB stats and Ollama health."""
 
-import requests as http_requests
-
 from fastapi import APIRouter, Request
 
-from imessage_rag import settings
+from imessage_rag import local_http as http_requests, settings
 from imessage_rag.config import EMBED_MODEL, OLLAMA_URL
 from imessage_rag.vectordb import get_stats
 from imessage_rag.web.app import templates
