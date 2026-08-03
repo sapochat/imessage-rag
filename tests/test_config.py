@@ -1,5 +1,7 @@
 """Tests for configuration validation."""
 
+import socket
+
 import pytest
 
 from imessage_rag.config import _validate_localhost
@@ -22,6 +24,56 @@ class TestValidateLocalhost:
     def test_rejects_unresolvable_hostname(self):
         with pytest.raises(ValueError, match="cannot be resolved"):
             _validate_localhost("http://definitely-not-a-real-host-12345.invalid/api")
+
+    def test_rejects_url_without_hostname(self):
+        with pytest.raises(ValueError, match="HTTP\\(S\\) localhost URL"):
+            _validate_localhost("localhost:11434")
+
+    def test_rejects_non_http_scheme(self):
+        with pytest.raises(ValueError, match="HTTP\\(S\\) localhost URL"):
+            _validate_localhost("ftp://localhost:11434")
+
+    def test_rejects_invalid_port(self):
+        with pytest.raises(ValueError, match="HTTP\\(S\\) localhost URL"):
+            _validate_localhost("http://localhost:not-a-port")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:not-a-port",
+            "http://[::1]:not-a-port",
+            "http://127.0.0.1:99999",
+        ],
+    )
+    def test_rejects_invalid_port_on_loopback_ip(self, url):
+        with pytest.raises(ValueError, match="HTTP\\(S\\) localhost URL"):
+            _validate_localhost(url)
+
+    def test_rejects_hostname_with_mixed_loopback_and_external_addresses(self, monkeypatch):
+        def fake_getaddrinfo(*args, **kwargs):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 11434)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 11434)),
+            ]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+        with pytest.raises(ValueError, match="93\\.184\\.216\\.34"):
+            _validate_localhost("http://mixed-localhost.test:11434")
+
+    def test_accepts_hostname_when_all_addresses_are_loopback(self, monkeypatch):
+        def fake_getaddrinfo(*args, **kwargs):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 11434)),
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 11434)),
+            ]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+        assert (
+            _validate_localhost("http://loopback-alias.test:11434")
+            == "http://loopback-alias.test:11434"
+        )
 
 
 class TestExpandPath:
