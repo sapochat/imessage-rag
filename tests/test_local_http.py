@@ -27,7 +27,7 @@ def test_request_disables_redirects_even_if_caller_enables_them(monkeypatch):
         "method": "GET",
         "url": "http://127.0.0.1:11434/api/tags",
         "allow_redirects": False,
-        "proxies": {"http": None, "https": None},
+        "proxies": {"http": "", "https": "", "all": ""},
     }
 
 
@@ -44,6 +44,7 @@ def test_request_rejects_external_destinations_before_transport(monkeypatch):
 
 def test_request_pins_hostname_and_ignores_explicit_proxy(monkeypatch):
     captured = {}
+    local_http._SESSION.proxies["all"] = "http://attacker.invalid:8080"
 
     monkeypatch.setattr(
         "imessage_rag.config.socket.getaddrinfo",
@@ -63,5 +64,6 @@ def test_request_pins_hostname_and_ignores_explicit_proxy(monkeypatch):
     parsed = urlparse(captured["url"])
     assert parsed.hostname is not None
     assert ipaddress.ip_address(parsed.hostname).is_loopback
-    assert captured["proxies"] == {"http": None, "https": None}
+    assert local_http._SESSION.proxies == {}
+    assert captured["proxies"] == {"http": "", "https": "", "all": ""}
     assert captured["allow_redirects"] is False
