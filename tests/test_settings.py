@@ -1,6 +1,8 @@
 """Tests for the persistent settings store."""
 
 import json
+import ipaddress
+from urllib.parse import urlparse
 
 import pytest
 
@@ -49,7 +51,23 @@ class TestSettings:
 
     def test_accepts_localhost_url(self, isolated_settings):
         settings.save({"generation_api_url": "http://localhost:8080/v1"})
-        assert settings.get_generation_api_url() == "http://localhost:8080/v1"
+        saved_url = settings.get_generation_api_url()
+        parsed = urlparse(saved_url)
+        assert parsed.hostname is not None
+        assert ipaddress.ip_address(parsed.hostname).is_loopback
+        assert parsed.port == 8080
+        assert parsed.path == "/v1"
+        assert "localhost" not in json.loads(isolated_settings.read_text())["generation_api_url"]
+
+    def test_rejects_tampered_or_legacy_external_url(self, isolated_settings):
+        isolated_settings.write_text(
+            json.dumps({"generation_api_url": "http://api.openai.com/v1"})
+        )
+        settings._cache = None
+        settings._cache_mtime = 0.0
+
+        with pytest.raises(ValueError, match="localhost"):
+            settings.get_generation_api_url()
 
     def test_get_all(self, isolated_settings):
         settings.save({"generation_backend": "openai", "generation_model": "test-model"})

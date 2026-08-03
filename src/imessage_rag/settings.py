@@ -41,13 +41,15 @@ def _load() -> dict:
 
 def save(data: dict) -> None:
     """Validate and persist settings. Merges with existing values."""
+    validated = dict(data)
+
     # Validate localhost constraint on API URL if provided
-    api_url = data.get("generation_api_url", "")
+    api_url = validated.get("generation_api_url", "")
     if api_url:
-        _validate_localhost(api_url)
+        validated["generation_api_url"] = _validate_localhost(api_url)
 
     existing = _load()
-    existing.update(data)
+    existing.update(validated)
 
     _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     _SETTINGS_PATH.write_text(json.dumps(existing, indent=2))
@@ -68,7 +70,9 @@ def get_generation_model() -> str:
 
 
 def get_generation_api_url() -> str:
-    return _load().get("generation_api_url") or GENERATION_API_URL
+    # Revalidate on every read so tampered or legacy settings fail closed.
+    url = _load().get("generation_api_url") or GENERATION_API_URL
+    return _validate_localhost(url) if url else ""
 
 
 def get_generation_api_key() -> str:
