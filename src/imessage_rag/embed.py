@@ -5,6 +5,7 @@ import time
 
 import requests
 
+from imessage_rag import local_http
 from imessage_rag.config import EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL, OLLAMA_URL
 
 
@@ -56,7 +57,7 @@ def _post_embedding(input_value: str | list[str]) -> requests.Response:
     if EMBED_DIMENSIONS is not None:
         payload["dimensions"] = EMBED_DIMENSIONS
     timeout = 120 if isinstance(input_value, str) else 300
-    return requests.post(f"{OLLAMA_URL}/api/embed", json=payload, timeout=timeout)
+    return local_http.post(f"{OLLAMA_URL}/api/embed", json=payload, timeout=timeout)
 
 
 def _response_error_message(resp: requests.Response) -> str:

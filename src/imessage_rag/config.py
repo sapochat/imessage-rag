@@ -1,5 +1,6 @@
 import os
 import json
+import ipaddress
 import socket
 from pathlib import Path
 from urllib.parse import urlparse
@@ -33,32 +34,74 @@ def _expand(path: str) -> Path:
     return Path(os.path.expanduser(path))
 
 
-_LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
-
-
 def _validate_localhost(url: str) -> str:
-    """Ensure a URL points to localhost. Raises ValueError otherwise."""
+    """Ensure an HTTP(S) URL resolves only to loopback addresses."""
     parsed = urlparse(url)
-    hostname = parsed.hostname or ""
+    hostname = parsed.hostname
 
-    if hostname in ("localhost", "127.0.0.1", "::1"):
-        return url
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or "\\" in parsed.netloc
+    ):
+        raise ValueError(
+            "URL must be an HTTP(S) localhost URL, such as "
+            "'http://localhost:11434'."
+        )
 
     try:
-        addr = socket.gethostbyname(hostname)
-    except socket.gaierror:
+        port = parsed.port
+    except ValueError:
         raise ValueError(
-            f"Hostname '{hostname}' cannot be resolved. "
-            f"Only localhost URLs are allowed."
+            "URL must be an HTTP(S) localhost URL, such as "
+            "'http://localhost:11434'."
         )
 
-    if addr not in _LOCALHOST_ADDRS:
-        raise ValueError(
-            f"URL must point to localhost, but '{hostname}' resolves to {addr}. "
-            f"This system never sends data off-machine."
-        )
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal = None
 
-    return url
+    if literal is not None:
+        if not literal.is_loopback:
+            raise ValueError(
+                f"URL must point to localhost, but '{hostname}' is not loopback. "
+                f"This system never sends data off-machine."
+            )
+        address = literal.compressed
+    else:
+        try:
+            addr_infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            raise ValueError(
+                f"Hostname '{hostname}' cannot be resolved. "
+                f"Only localhost URLs are allowed."
+            )
+
+        addresses = list(dict.fromkeys(
+            str(addr_info[4][0])
+            for addr_info in addr_infos
+            if addr_info[4]
+        ))
+        if not addresses or not all(
+            ipaddress.ip_address(addr).is_loopback for addr in addresses
+        ):
+            resolved = ", ".join(sorted(addresses)) or "no addresses"
+            raise ValueError(
+                f"URL must point to localhost, but '{hostname}' resolves to {resolved}. "
+                f"This system never sends data off-machine."
+            )
+
+        # Pin validated hostnames to a loopback literal so DNS cannot change
+        # between validation and the eventual HTTP request. Prefer IPv4 when
+        # available because most local Ollama installations bind there.
+        address = next((addr for addr in addresses if ":" not in addr), addresses[0])
+
+    literal_host = f"[{address}]" if ":" in address else address
+    netloc = literal_host if port is None else f"{literal_host}:{port}"
+    return parsed._replace(netloc=netloc).geturl()
 
 
 # iMessage
